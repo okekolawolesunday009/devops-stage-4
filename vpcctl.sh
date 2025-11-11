@@ -62,7 +62,7 @@ create_vpc() {
     # Example usage: create_ns <vpc> <ns> <ip_cidr> <gateway_cidr> <bridge> <public|private>
 
     echo "VPC '$name' created with gateway '$gateway_cidr' (bridge: '$br')"
-
+}
 
 # Delete a VPC
 delete_vpc() {
