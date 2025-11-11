@@ -165,7 +165,7 @@ unpeer_vpcs() {
 }
 
 # Cleanup all VPCs and namespaces
-clean_up() {
+cleanup_all() {
     echo "Cleaning up all VPCs and namespaces"
     read -p "Proceed with caution (y/n)? " ans
     [ "${ans,,}" == "y" ] || return 1
@@ -197,9 +197,9 @@ case "$cmd" in
     create_ns) [ $# -ne 5 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
     peer_vpcs) [ $# -ne 2 ] && usage; peer_vpcs "$1" "$2" ;;
-    unpeer_vpcs) [ $# -ne 2 ] && usage; echo "Not implemented yet"; ;;
+    unpeer_vpcs) [ $# -ne 2 ] && usage; unpeer_vpcs "$1" "$2" ;;
     list) echo "Listing not implemented"; ;;
-    cleanup_all) clean_up ;;
+    cleanup_all) cleanup_all ;;
     help) usage ;;
     *) usage ;;
 esac
