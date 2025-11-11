@@ -130,3 +130,42 @@ peer_vpcs(){
     echo "Add SG rules to control inter-VPC traffic (add-sg/del-sg)"
     
 }
+
+clean_up() {
+    echo "Cleaning up all VPCs and namespaces"
+
+    read -p "Proceed with caution (y/n)? "ans
+
+    [ "${ans,,}" == "y" ] || return 1
+
+    for ns in $(ip netns list | awk -F ': ' '{print $2}' || true); do
+        run ip netns delete "$ns" 2>/dev/null || true
+    done
+
+    for br in $(ip link show | awk -F ': ' '{print $2}' | grep -E 'vpc-.*-br' || true); do
+        run ip link set "$br" down 2>/dev/null || true
+        run ip link delete "$br" 2>/dev/null || true
+    done
+
+    run iptables -F
+    run iptables -t nat -F
+
+
+    echo "All VPCs and namespaces cleaned up"
+    
+}
+
+if [ $# -lt 1 ]; then usage; fi
+cmd=$1; shift
+case $cmd in
+    create_vpc) [ $# -ne 2 ] && usage; create_vpc $1 $2;;
+    delete_vpc) [ $# -ne 1 ] && usage; delete_vpc $1;;
+    create_ns) [ $# -ne 3 ] && usage; create_ns $1 $2 $3;;
+    delete_ns) [ $# -ne 1 ] && usage; delete_ns $1;;
+    peer_vpcs) [ $# -ne 2 ] && usage; peer_vpcs $1 $2;;
+    unpeer_vpcs) [ $# -ne 2 ] && usage; unpeer_vpcs $1 $2;;
+    list) list;;
+    cleanup_all) cleanup_all;;
+    help) usage;;
+    *) usage;;
+esac
