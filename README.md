@@ -129,4 +129,29 @@ To remove security group rules:
 ./vpcctl.sh remove_sg <vpc_name> <namespace> <subnet_cidr> security_groups.json
 ```
 
+## Deploying Web Servers for Connectivity Testing
+
+You can use either a Python HTTP server or Nginx in your namespaces to test connectivity and isolation.
+
+### Python HTTP server
+```sh
+ip netns exec <namespace1> python3 -m http.server 8081 &
+
+ip netns exec <namespace2> curl http://<target_ip1>:8081
+```
+
+### Nginx
+Install Nginx if not already present:
+```sh
+sudo apt-get install nginx -y
+```
+Start Nginx in a namespace:
+```sh
+ip netns exec <namespace2> nginx
+```
+Test from another namespace or the host:
+```sh
+ip netns exec <namespace1> curl http://<target_ip2>
+```
+
 This applies or removes the ingress rules for the subnet to the namespace using iptables. For example, port 80 will be allowed and port 22 denied if present in the rules.
