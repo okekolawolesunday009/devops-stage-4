@@ -128,10 +128,10 @@ create_ns() {
 
     # Enable NAT if nat_enabled is true
     if [ "$nat_enabled" == "true" ]; then
-        public_ip=$(ip -o -4 addr show dev eth0 | awk '{print $4}' | cut -d'/' -f1)
+        public_ip=$(ip -o -4 addr show dev "$br" | awk '{print $4}' | cut -d'/' -f1)
         if [ -n "$public_ip" ]; then
-            iptables -t nat -C POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip" 2>/dev/null || \
-            iptables -t nat -A POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip"
+            iptables -t nat -C POSTROUTING -s "$ipcidr" -o "$br" -j SNAT --to-source "$public_ip" 2>/dev/null || \
+            iptables -t nat -A POSTROUTING -s "$ipcidr" -o "$br" -j SNAT --to-source "$public_ip"
             echo "Static SNAT enabled for $namespace ($ipcidr → $public_ip)"
         else
             echo "Error: Could not determine public IP for eth0" >&2
@@ -146,9 +146,10 @@ delete_ns() {
 
     # Remove NAT rule for this namespace
     ipcidr=$(ip netns exec "$namespace" ip -o -4 addr show | awk '{print $4}' | head -n1)
-    public_ip=$(ip -o -4 addr show dev eth0 | awk '{print $4}' | cut -d'/' -f1)
+    br=$(ip netns exec "$namespace" ip link show | awk -F ': ' '{print $2}' | grep -E 'vpc-.*-br' | head -n1)       
+    public_ip=$(ip -o -4 addr show dev "$br" | awk '{print $4}' | cut -d'/' -f1)
     if [ -n "$ipcidr" ] && [ -n "$public_ip" ]; then
-        iptables -t nat -D POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip" 2>/dev/null || true
+        iptables -t nat -D POSTROUTING -s "$ipcidr" -o "$br" -j SNAT --to-source "$public_ip" 2>/dev/null || true
     fi
 
     run ip netns delete "$namespace" 2>/dev/null || true
