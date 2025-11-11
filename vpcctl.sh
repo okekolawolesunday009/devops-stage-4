@@ -179,6 +179,9 @@ unpeer_vpcs() {
     run ip link delete "veth-$vpc1-$vpc2" 2>/dev/null || true
     run ip link delete "veth-$vpc2-$vpc1" 2>/dev/null || true
 
+}
+
+# List all VPCs and namespaces
 list_state() {
     echo "Listing all VPCs and namespaces"
     ip netns list
