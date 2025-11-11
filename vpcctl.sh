@@ -63,17 +63,22 @@ delete_vpc() {
 create_ns() {
     local vpc$1; local namespace=$2 local ipcidr=$3
     local dev="veth-$namespace" local peer="dev-br"
-    local br="vpc-$vpc-br"
+    local br="vpc-$vpc-br" local gateway_cidr=$4
     # create ns
     run ip netns add "$namespace" || true
+
+    echo "Namespace '$namespace' created"
     # create v-eth
     run ip link add "$dev" type veth peer name "peer"
     # set v-eth to ns
     run ip link set "$dev" netns "$namespace" || true
     # set peer to bridge
-    run ip link set "peer" master "$br" || true
-    run ip link set "peer" up || true
-    run ip link set "$dev" up || true
+    run ip link set "$peer" master "$br" || true
+ 
+    run ip link set "$peer" up || true
+ 
+
+
     # set ns ip ( add ip to ns)
     run ip netns exec "$namespace" ip addr add "$ipcidr" dev "$dev" || true
     # set ip up
@@ -83,13 +88,45 @@ create_ns() {
     # set default up for fall back
     run ip netns exec "$namespace" ip route add default via "$gateway_cidr" || true
 
+
+    run ip netns exec "$namespace" ip route add default via  "$gateway_cidr" dev "$dev" || true
+  
+
     
-    echo "Namespace '$namespace' created"
+    
 
 }
 
 delete_ns() {
-    local name=$1
-    run ip netns delete "$name" || true
-    echo "Namespace '$name' deleted"
+    local namespace=$1
+    run ip netns delete "$namespace" 2>/dev/null || true
+
+    for p in $(ip -o link show | awk -F ': ' '{print $2}' | grep -E  "veth-$namespace-br| veth-$namespace\$" || true); do
+        run ip link delete "$p" 2>/dev/null || true
+    done
+    echo "Namespace '$namespace' deleted"
+}
+
+peer_vpcs(){
+    local vpc1=$1
+    local vpc2=$2
+    local br1="vpc-$vpc1-br"
+    local br2="vpc-$vpc2-br"
+   
+
+    if [ "$vpc1 == $vpc2"]; then
+        echo "vpc cannot peer with itself"
+        return 1
+    fi
+    
+    run ip link add name "$vpc1" type veth peer name "$vpc2"
+    run ip link set "$vpc1" master "$br1"
+    run ip link set "$vpc2" master "$br2"
+    run ip link set "$vpc1" up
+    run ip link set "$vpc2" up
+    
+    echo "VPC '$vpc1' and '$vpc2' are peered"
+    echo "Peered $vpc1 <-> $vpc2 ($br1 <-> $br2)"
+    echo "Add SG rules to control inter-VPC traffic (add-sg/del-sg)"
+    
 }
