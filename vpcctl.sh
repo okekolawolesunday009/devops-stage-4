@@ -98,7 +98,7 @@ create_ns() {
     local nat_enabled=$7
 
     # Check if namespace already exists
-    if ip netns show "$namespace" >/dev/null 2>&1; then
+    if ip netns list | grep -qw "$namespace"; then
         echo "Error: Namespace '$namespace' already exists" >&2
         return 1
     fi
