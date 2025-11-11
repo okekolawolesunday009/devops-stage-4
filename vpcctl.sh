@@ -247,12 +247,12 @@ add_sg(){
     local cidr=$3
     local policy_file=$4
 
-    rules=$(jq -c ".[] | select(.subnet == \"$cidr\") | .ingress[]" "$policy_file")
+    rules=$(awk -v cidr="$cidr" 'BEGIN{RS="{";FS=","} /subnet/ && $0 ~ cidr {for(i=1;i<=NF;i++){if($i~"ingress"){gsub(/\[|\]|}/,"",$i); print $i}}}' "$policy_file")
 
     for rule in $rules; do
-    port=$(echo $rule | jq -r '.port')
-    proto=$(echo $rule | jq -r '.protocol')
-    action=$(echo $rule | jq -r '.action')
+    port=$(echo "$rule" | grep -o '"port"[ ]*:[ ]*[^,}]*' | cut -d: -f2 | tr -d ' "')
+    proto=$(echo "$rule" | grep -o '"protocol"[ ]*:[ ]*[^,}]*' | cut -d: -f2 | tr -d ' "')
+    action=$(echo "$rule" | grep -o '"action"[ ]*:[ ]*[^,}]*' | cut -d: -f2 | tr -d ' "')
     if [ "$action" == "allow" ]; then
         ip netns exec "$ns" iptables -C INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || \
         ip netns exec "$ns" iptables -A INPUT -p "$proto" --dport "$port" -j ACCEPT
@@ -270,12 +270,12 @@ remove_sg(){
     local cidr=$3
     local policy_file=$4
 
-    rules=$(jq -c ".[] | select(.subnet == \"$cidr\") | .ingress[]" "$policy_file")
+    rules=$(awk -v cidr="$cidr" 'BEGIN{RS="{";FS=","} /subnet/ && $0 ~ cidr {for(i=1;i<=NF;i++){if($i~"ingress"){gsub(/\[|\]|}/,"",$i); print $i}}}' "$policy_file")
 
     for rule in $rules; do
-    port=$(echo $rule | jq -r '.port')
-    proto=$(echo $rule | jq -r '.protocol')
-    action=$(echo $rule | jq -r '.action')
+    port=$(echo "$rule" | grep -o '"port"[ ]*:[ ]*[^,}]*' | cut -d: -f2 | tr -d ' "')
+    proto=$(echo "$rule" | grep -o '"protocol"[ ]*:[ ]*[^,}]*' | cut -d: -f2 | tr -d ' "')
+    action=$(echo "$rule" | grep -o '"action"[ ]*:[ ]*[^,}]*' | cut -d: -f2 | tr -d ' "')
     if [ "$action" == "allow" ]; then
         ip netns exec "$ns" iptables -C INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || \
         ip netns exec "$ns" iptables -D INPUT -p "$proto" --dport "$port" -j ACCEPT
@@ -288,7 +288,7 @@ remove_sg(){
 
 # Command parsing
 # Check required commands
-for cmd in ip iptables awk grep cut sysctl jq; do
+for cmd in ip iptables awk grep cut sysctl; do
     command -v $cmd >/dev/null 2>&1 || { echo "$cmd is required but not installed. Aborting." >&2; exit 1; }
 done
 
