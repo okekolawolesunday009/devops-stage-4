@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euxo pipefail  
 
+if [ "$EUID" -ne 0 ]; then
+  echo "This script must be run as root." >&2
+  exit 1
+fi
+
+
 echo "**********************************************************************"
 echo "vpcctl - tiny VPC manager using Linux bridges, netns, veth, iptables"
 echo "**********************************************************************"
@@ -24,8 +30,8 @@ Commands:
     create_ns <vpc_name> <ns_name> <ip_cidr> <gateway_cidr> - create a new namespace in a VPC
     delete_ns <ns_name> - delete a namespace
     peer_vpcs <vpc_name1> <vpc_name2> - peer two VPCs
-    unpeer_vpcs <vpc_name1> <vpc_name2> - unpeer two VPCs
-    list           - list all VPCs and namespaces
+    unpeer_vpcs <vpc_name1> <vpc_name2> - (not implemented)
+    list           - (not implemented)
     help           - show this help message
     cleanup_all    - cleanup all VPCs and namespaces
 EOF
@@ -43,10 +49,10 @@ create_vpc() {
 
     # Assign IP if not already assigned
     if ! ip -c addr show dev "$br" | grep "$gateway_cidr"; then 
-        run ip addr add "$gateway_cidr" dev "$br" || true
+        run ip addr add "$gateway_cidr" dev "$br"
     fi
 
-    run ip link set "$br" up || true
+    run ip link set "$br" up
     echo "VPC '$name' created with gateway '$gateway_cidr' (bridge: '$br')"
 }
 
@@ -72,26 +78,27 @@ create_ns() {
     local br="vpc-$vpc-br"
 
     # Create namespace
-    run ip netns add "$namespace" || true
+    run ip netns add "$namespace"
     echo "Namespace '$namespace' created"
 
     # Create veth pair
     run ip link add "$dev" type veth peer name "$peer"
 
     # Move veth to namespace
-    run ip link set "$dev" netns "$namespace" || true
+    run ip link set "$dev" netns "$namespace"
 
     # Attach peer to bridge
-    run ip link set "$peer" master "$br" || true
-    run ip link set "$peer" up || true
+    run ip link set "$peer" master "$br"
+    run ip link set "$peer" up
 
     # Assign IP inside namespace
-    run ip netns exec "$namespace" ip addr add "$ipcidr" dev "$dev" || true
-    run ip netns exec "$namespace" ip link set "$dev" up || true
-    run ip netns exec "$namespace" ip link set lo up || true
+    run ip netns exec "$namespace" ip addr add "$ipcidr" dev "$dev"
+    run ip netns exec "$namespace" ip link set "$dev" up
+    run ip netns exec "$namespace" ip link set lo up
 
     # Set default route
-    run ip netns exec "$namespace" ip route add default via "$gateway_cidr" dev "$dev" || true
+    local gateway_ip=$(echo "$gateway_cidr" | cut -d'/' -f1)
+    run ip netns exec "$namespace" ip route add default via "$gateway_ip" dev "$dev"
 }
 
 # Delete namespace
