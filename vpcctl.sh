@@ -27,7 +27,7 @@ Usage: vpcctl <command>
 Commands:
     create_vpc <vpc_name> <gateway_cidr> - create a new VPC
     delete_vpc <vpc_name> - delete a VPC
-    create_ns <vpc_name> <ns_name> <ip_cidr> <gateway_cidr> - create a new namespace in a VPC
+    create_ns <vpc_name> <ns_name> <ip_cidr> <gateway_cidr> <public|private> - create a new namespace in a VPC
     delete_ns <ns_name> - delete a namespace
     peer_vpcs <vpc_name1> <vpc_name2> - peer two VPCs
     unpeer_vpcs <vpc_name1> <vpc_name2> - (not implemented)
@@ -133,6 +133,8 @@ delete_ns() {
 peer_vpcs() {
     local vpc1=$1
     local vpc2=$2
+    shift 2
+    local allowed_cidrs=("$@")
     local br1="vpc-$vpc1-br"
     local br2="vpc-$vpc2-br"
 
@@ -147,8 +149,24 @@ peer_vpcs() {
     run ip link set "veth-$vpc1-$vpc2" up
     run ip link set "veth-$vpc2-$vpc1" up
 
+    # Add static routes for allowed CIDRs in all namespaces of both VPCs
+    for ns in $(ip netns list | awk -F ': ' '{print $1}'); do
+        ns_vpc=$(echo $ns | cut -d'-' -f1)
+        if [ "$ns_vpc" == "$vpc1" ]; then
+            for cidr in "${allowed_cidrs[@]}"; do
+                ip netns exec "$ns" ip route add "$cidr" dev "veth-$vpc1-$vpc2" || true
+            done
+        elif [ "$ns_vpc" == "$vpc2" ]; then
+            for cidr in "${allowed_cidrs[@]}"; do
+                ip netns exec "$ns" ip route add "$cidr" dev "veth-$vpc2-$vpc1" || true
+            done
+        fi
+    done
+
     echo "VPC '$vpc1' and '$vpc2' are peered ($br1 <-> $br2)"
-    echo "Add SG rules to control inter-VPC traffic if needed"
+    if [ ${#allowed_cidrs[@]} -gt 0 ]; then
+        echo "Allowed cross-VPC CIDRs: ${allowed_cidrs[*]}"
+    fi
 }
 
 
@@ -161,9 +179,11 @@ unpeer_vpcs() {
     run ip link delete "veth-$vpc1-$vpc2" 2>/dev/null || true
     run ip link delete "veth-$vpc2-$vpc1" 2>/dev/null || true
 
-    echo "VPC '$vpc1' and '$vpc2' are unpeered ($br1 <-> $br2)"
+list_state() {
+    echo "Listing all VPCs and namespaces"
+    ip netns list
+    ip link show | awk -F ': ' '{print $2}' | grep -E 'vpc-.*-br'
 }
-
 # Cleanup all VPCs and namespaces
 cleanup_all() {
     echo "Cleaning up all VPCs and namespaces"
@@ -187,6 +207,51 @@ cleanup_all() {
 
     echo "All VPCs and namespaces cleaned up"
 }
+
+add_sg(){
+    local vpc=$1
+    local ns=$2
+    local cidr=$3
+    local policy_file=$4
+
+    rules=$(jq -c ".[] | select(.subnet == \"$cidr\") | .ingress[]" "$policy_file")
+
+    for rule in $rules; do
+    port=$(echo $rule | jq -r '.port')
+    proto=$(echo $rule | jq -r '.protocol')
+    action=$(echo $rule | jq -r '.action')
+    if [ "$action" == "allow" ]; then
+        ip netns exec "$ns" iptables -C INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || \
+        ip netns exec "$ns" iptables -A INPUT -p "$proto" --dport "$port" -j ACCEPT
+    elif [ "$action" == "deny" ]; then
+        ip netns exec "$ns" iptables -C INPUT -p "$proto" --dport "$port" -j DROP 2>/dev/null || \
+        ip netns exec "$ns" iptables -A INPUT -p "$proto" --dport "$port" -j DROP
+    fi
+    done
+
+}
+
+remove_sg(){
+    local vpc=$1
+    local ns=$2
+    local cidr=$3
+    local policy_file=$4
+
+    rules=$(jq -c ".[] | select(.subnet == \"$cidr\") | .ingress[]" "$policy_file")
+
+    for rule in $rules; do
+    port=$(echo $rule | jq -r '.port')
+    proto=$(echo $rule | jq -r '.protocol')
+    action=$(echo $rule | jq -r '.action')
+    if [ "$action" == "allow" ]; then
+        ip netns exec "$ns" iptables -C INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || \
+        ip netns exec "$ns" iptables -D INPUT -p "$proto" --dport "$port" -j ACCEPT
+    elif [ "$action" == "deny" ]; then
+        ip netns exec "$ns" iptables -C INPUT -p "$proto" --dport "$port" -j DROP 2>/dev/null || \
+        ip netns exec "$ns" iptables -D INPUT -p "$proto" --dport "$port" -j DROP
+    fi
+    done
+}   
 
 # Command parsing
 if [ $# -lt 1 ]; then usage; fi

@@ -90,8 +90,8 @@ Run the script with the desired command:
 # Create a private subnet 'priv1' in VPC 'dev' (internal-only)
 ./vpcctl.sh create_ns dev priv1 10.0.0.3/24 10.0.0.1/24 vpc-dev-br private
 
-# Peer two VPCs
-./vpcctl.sh peer_vpcs dev vpc2
+# Peer two VPCs, allowing only specific CIDRs to communicate
+./vpcctl.sh peer_vpcs dev vpc2 10.0.0.0/24 10.1.0.0/24
 
 # Unpeer two VPCs
 ./vpcctl.sh unpeer_vpcs dev vpc2
@@ -99,3 +99,34 @@ Run the script with the desired command:
 # Cleanup all
 ./vpcctl.sh cleanup_all
 ```
+
+## Security Groups (Firewall Rules)
+
+You can define subnet-level firewall rules (simulating security groups) using a JSON policy file and apply them to namespaces.
+
+### Example policy: `security_groups.json`
+```json
+[
+  {
+    "subnet": "10.0.0.0/24",
+    "ingress": [
+      {"port": 80, "protocol": "tcp", "action": "allow"},
+      {"port": 22, "protocol": "tcp", "action": "deny"}
+    ]
+  }
+]
+```
+
+### Applying/removing rules to a namespace
+
+To apply security group rules:
+```sh
+./vpcctl.sh add_sg <vpc_name> <namespace> <subnet_cidr> security_groups.json
+```
+
+To remove security group rules:
+```sh
+./vpcctl.sh remove_sg <vpc_name> <namespace> <subnet_cidr> security_groups.json
+```
+
+This applies or removes the ingress rules for the subnet to the namespace using iptables. For example, port 80 will be allowed and port 22 denied if present in the rules.
