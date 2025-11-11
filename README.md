@@ -5,11 +5,12 @@ This project includes a minimal VPC manager for Linux, implemented in `vpcctl.sh
 ## Features
 
 - Create and delete VPCs (Linux bridges)
-- Create and delete network namespaces
-- Attach namespaces to VPCs using veth pairs
+- Create and delete network namespaces (subnets)
+- Attach namespaces (subnets) to VPCs using veth pairs
 - Assign gateway IPs to VPCs
-- Peer and unpeer namespaces with VPCs
-- List and clean up VPCs
+- Peer and unpeer VPCs
+- Public/private subnets (with NAT for public)
+- List and clean up VPCs and namespaces
 
 ## Environment Variables
 
@@ -51,28 +52,28 @@ Run the script with the desired command:
 ### Commands
 
 - `create_vpc <vpc_name> <gateway_cidr>`  
-  Create a new VPC (bridge) with the specified name and gateway CIDR.
+  Create a new VPC (bridge) with the specified name and gateway CIDR (e.g., 10.0.0.1/24).
 
 - `delete_vpc <vpc_name>`  
   Delete the specified VPC.
 
-- `create-ns <vpc_name> <namespace> <ipcidr>`  
-  Create a namespace, attach it to the VPC, and assign an IP.
+- `create_ns <vpc_name> <namespace> <ipcidr> <gateway_cidr> <bridge> <public|private>`  
+  Create a namespace (subnet), attach it to the VPC bridge, assign an IP, set default route, and specify if public (NAT enabled) or private (internal-only).
 
-- `delete-ns <namespace>`  
+- `delete_ns <namespace>`  
   Delete the specified namespace.
 
-- `peer vpcs <vpc_name> <vpc2_name>`  
-  Peer two VPCs.
+- `peer_vpcs <vpc_name1> <vpc_name2>`  
+  Peer two VPCs (connect bridges).
 
-- `unpeer vpcs <vpc_name> <vpc2_name>`  
+- `unpeer_vpcs <vpc_name1> <vpc_name2>`  
   Unpeer two VPCs.
 
 - `list`  
-  List all VPCs.
+  List all VPCs and namespaces (not implemented).
 
-- `cleanup-all`  
-  Remove all VPCs and namespaces.
+- `cleanup_all`  
+  Remove all VPCs and namespaces, flush iptables.
 
 - `help`  
   Show usage instructions.
@@ -83,15 +84,18 @@ Run the script with the desired command:
 # Create a VPC named 'dev' with gateway 10.0.0.1/24
 ./vpcctl.sh create_vpc dev 10.0.0.1/24
 
-# Create a namespace 'ns1' in VPC 'dev' with IP 10.0.0.2/24
-./vpcctl.sh create-ns dev ns1 10.0.0.2/24
+# Create a public subnet 'pub1' in VPC 'dev' (NAT enabled)
+./vpcctl.sh create_ns dev pub1 10.0.0.2/24 10.0.0.1/24 vpc-dev-br public
 
-# List all VPCs
-./vpcctl.sh list
+# Create a private subnet 'priv1' in VPC 'dev' (internal-only)
+./vpcctl.sh create_ns dev priv1 10.0.0.3/24 10.0.0.1/24 vpc-dev-br private
 
-# Delete namespace
-./vpcctl.sh delete-ns ns1
+# Peer two VPCs
+./vpcctl.sh peer_vpcs dev vpc2
 
-# Delete VPC
-./vpcctl.sh delete_vpc dev
+# Unpeer two VPCs
+./vpcctl.sh unpeer_vpcs dev vpc2
+
+# Cleanup all
+./vpcctl.sh cleanup_all
 ```

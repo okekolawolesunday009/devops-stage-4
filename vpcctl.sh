@@ -194,7 +194,7 @@ cmd=$1; shift
 case "$cmd" in
     create_vpc) [ $# -ne 2 ] && usage; create_vpc "$1" "$2" ;;
     delete_vpc) [ $# -ne 1 ] && usage; delete_vpc "$1" ;;
-    create_ns) [ $# -ne 5 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" ;;
+    create_ns) [ $# -ne 6 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
     peer_vpcs) [ $# -ne 2 ] && usage; peer_vpcs "$1" "$2" ;;
     unpeer_vpcs) [ $# -ne 2 ] && usage; unpeer_vpcs "$1" "$2" ;;
