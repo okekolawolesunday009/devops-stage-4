@@ -161,25 +161,59 @@ delete_ns() {
     echo "Namespace '$namespace' deleted"
 }
 
-# Peer two VPCs
+# Peer two VPC bridges
 peer_vpcs() {
     local vpc1=$1
     local vpc2=$2
+    local br1="vpc-$vpc1-br"
+    local br2="vpc-$vpc2-br"
+    local veth1="veth-$vpc1-$vpc2"
+    local veth2="veth-$vpc2-$vpc1"
+
+    if [ "$vpc1" == "$vpc2" ]; then
+        echo "Error: Cannot peer a VPC with itself" >&2
+        return 1
+    fi
+
+    # Check if bridges exist
+    if ! ip link show "$br1" >/dev/null 2>&1; then
+        echo "Error: Bridge '$br1' does not exist" >&2
+        return 1
+    fi
+    if ! ip link show "$br2" >/dev/null 2>&1; then
+        echo "Error: Bridge '$br2' does not exist" >&2
+        return 1
+    fi
+
+    # Create veth pair
+    run ip link add "$veth1" type veth peer name "$veth2"
+    run ip link set "$veth1" master "$br1"
+    run ip link set "$veth2" master "$br2"
+    run ip link set "$veth1" up
+    run ip link set "$veth2" up
+
+    echo "VPC '$vpc1' and '$vpc2' are now peered via $veth1 <-> $veth2"
+}
+
+# Peer two VPCs
+peer_ns() {
+    local vpc_ns1=$1
+    local vpc_ns2=$2
     local allowed_cidrs=("$@")
     local br=$3
     
 
-    if [ "$vpc1" == "$vpc2" ]; then
+    if [ "$vpc_ns1" == "$vpc_ns2" ]; then
         echo "Error: VPC cannot peer with itself"
         return 1
     fi
 
-    run ip link add name "veth-$vpc1" type veth peer name "veth-$vpc1-br"
-    run ip link add name "veth-$vpc2" type veth peer name "veth-$vpc2-br"
-    run ip link set "veth-$vpc1" master "$br"
-    run ip link set "veth-$vpc2" master "$br"
-    run ip link set "veth-$vpc1" up
-    run ip link set "veth-$vpc2" up
+    run ip link add name "veth-$vpc_ns1" type veth peer name "veth-$vpc_ns1-br"
+    run ip link add name "veth-$vpc_ns2" type veth peer name "veth-$vpc_ns2-br"
+    run ip link set "veth-$vpc_ns1" master "$br"
+    run ip link set "veth-$vpc_ns2" master "$br"
+    run ip link set "veth-$vpc_ns1" up
+    run ip link set "veth-$vpc_ns2" up
 
     # Add static routes for allowed CIDRs in all namespaces of both VPCs
     for ns in $(ip netns list | awk -F ': ' '{print $1}'); do
@@ -202,13 +236,13 @@ peer_vpcs() {
 }
 
 
-unpeer_vpcs() {
-    local vpc1=$1
-    local vpc2=$2
+unpeer_ns() {
+    local vpc_ns1=$1
+    local vpc_ns2=$2
     local br=$3
 
-    run ip link delete "veth-$vpc1" 2>/dev/null || true
-    run ip link delete "veth-$vpc2" 2>/dev/null || true
+    run ip link delete "veth-$vpc_ns1" 2>/dev/null || true
+    run ip link delete "veth-$vpc_ns2" 2>/dev/null || true
     run ip link delete "$br" 2>/dev/null || true
 }
 
@@ -300,7 +334,8 @@ case "$cmd" in
     delete_vpc) [ $# -ne 1 ] && usage; delete_vpc "$1" ;;
     create_ns) [ $# -ne 7 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" "$7" ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
-    peer_vpcs) [ $# -ne 3 ] && usage; peer_vpcs "$1" "$2" "$3" ;;
+    peer_ns) [ $# -ne 3 ] && usage; peer_ns "$1" "$2" "$3" ;;
+    peer_vpcs) [ $# -ne 2 ] && usage; peer_vpcs "$1" "$2" ;;
     cleanup_all) cleanup_all ;;
     help) usage ;;
     *) usage ;;

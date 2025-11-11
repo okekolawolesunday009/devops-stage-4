@@ -13,7 +13,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Check required commands
-for cmd in bash ip iptables awk grep cut sysctl jq python3 curl; do
+for cmd in bash ip iptables awk grep cut sysctl python3 curl; do
     command -v $cmd >/dev/null 2>&1 || { echo "$cmd is required but not installed. Aborting." >&2; exit 1; }
 done
 
@@ -75,12 +75,20 @@ log "[5] Testing inter-VPC communication (ns1 <-> ns3, expect blocked)..."
 ip netns exec ns1 curl -s --connect-timeout 2 http://10.1.0.10:8080 && log "ns1 can reach ns3 (FAIL)" || log "ns1 cannot reach ns3 (PASS)"
 ip netns exec ns3 curl -s --connect-timeout 2 http://10.0.0.10:8080 && log "ns3 can reach ns1 (FAIL)" || log "ns3 cannot reach ns1 (PASS)"
 
-# 6. Peer VPCs and retest
-log "[6] Peering VPCs..."
-vpcctl.sh peer_vpcs vpc1 vpc2 vpc-peer-br
+# 6. Peer namespaces and retest
+log "[6] Peering namespaces (ns1 <-> ns3)..."
+bash vpcctl.sh peer_ns ns1 ns3 vpc-vpc1-br
 sleep 1
-log "[6] Testing after peering (should be allowed)..."
-ip netns exec ns1 curl -s --connect-timeout 2 http://10.1.0.10:8080 && log "ns1 can reach ns3 after peering (PASS)" || log "ns1 cannot reach ns3 after peering (FAIL)"
+log "[6] Testing after namespace peering (should be allowed if routes are set)..."
+ip netns exec ns1 curl -s --connect-timeout 2 http://10.1.0.10:8080 && log "ns1 can reach ns3 after ns peering (PASS)" || log "ns1 cannot reach ns3 after ns peering (FAIL)"
+ip netns exec ns3 curl -s --connect-timeout 2 http://10.0.0.10:8080 && log "ns3 can reach ns1 after ns peering (PASS)" || log "ns3 cannot reach ns1 after ns peering (FAIL)"
+
+# 7. Peer VPCs and retest
+log "[7] Peering VPCs..."
+bash vpcctl.sh peer_vpcs vpc1 vpc2
+sleep 1
+log "[7] Testing after VPC peering (should be allowed)..."
+ip netns exec ns1 curl -s --connect-timeout 2 http://10.1.0.10:8080 && log "ns1 can reach ns3 after VPC peering (PASS)" || log "ns1 cannot reach ns3 after VPC peering (FAIL)"
 
 # 7. Policy enforcement test (example: block ns2 -> ns1)
 log "[7] Enforcing policy: block ns2 -> ns1..."
