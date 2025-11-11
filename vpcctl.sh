@@ -36,10 +36,11 @@ create_vpc() {
     
     local br="vpc-$name-br"
 
-    #show existing 
+    # show existing 
+
 
     run ip link show "$br" >/dev/null 2>&1 || run ip link add name "$br" type bridge
-    
+    # create bridge
     if ! ip -c addr show dev "$br" | grep "$gateway_cidr"; then 
         run ip addr add "$gateway_cidr" dev "$br" || true
     fi
@@ -91,3 +92,4 @@ delete_ns() {
     local name=$1
     run ip netns delete "$name" || true
     echo "Namespace '$name' deleted"
+}
