@@ -25,9 +25,9 @@ vpcctl - manage Linux VPC
 Usage: vpcctl <command>
 
 Commands:
-    create_vpc <vpc_name> <gateway_cidr> - create a new VPC
+    create_vpc <vpc_name> <cidr_block> - create a new VPC
     delete_vpc <vpc_name> - delete a VPC
-    create_ns <vpc_name> <ns_name> <ip_cidr> <gateway_cidr> <public|private> - create a new namespace in a VPC
+    create_ns <vpc_name> <ns_name> <public_subnet | private_subnet> <public|private> - create a new namespace in a VPC
     delete_ns <ns_name> - delete a namespace
     peer_vpcs <vpc_name1> <vpc_name2> - peer two VPCs
     unpeer_vpcs <vpc_name1> <vpc_name2> - (not implemented)
@@ -41,15 +41,15 @@ EOF
 # Create a VPC (Linux bridge)
 create_vpc() {
     local name=$1
-    local gateway_cidr=$2
+    local cidr_block=$2
     local br="vpc-$name-br"
 
     # Create bridge if it doesn't exist
     run ip link show "$br" >/dev/null 2>&1 || run ip link add name "$br" type bridge
 
     # Assign IP if not already assigned
-    if ! ip -c addr show dev "$br" | grep "$gateway_cidr"; then 
-        run ip addr add "$gateway_cidr" dev "$br"
+    if ! ip -c addr show dev "$br" | grep "$cidr_block"; then 
+        run ip addr add "$cidr_block" dev "$br"
     fi
 
     run ip link set "$br" up
@@ -111,10 +111,20 @@ create_ns() {
 
     # Enable NAT if this is a public subnet
     if [ "$subnet_type" == "public" ]; then
-        iptables -t nat -C POSTROUTING -s "$ipcidr" -o eth0 -j MASQUERADE 2>/dev/null || \
-        iptables -t nat -A POSTROUTING -s "$ipcidr" -o eth0 -j MASQUERADE
-        echo "NAT enabled for public subnet $namespace ($ipcidr)"
+    # Get the public IP address of the external interface (eth0)
+        public_ip=$(ip -o -4 addr show dev eth0 | awk '{print $4}' | cut -d'/' -f1)
+
+        if [ -n "$public_ip" ]; then
+            # Check if the SNAT rule already exists, otherwise add it
+            iptables -t nat -C POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip" 2>/dev/null || \
+            iptables -t nat -A POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip"
+
+            echo "Static SNAT enabled for public subnet $namespace ($ipcidr → $public_ip)"
+        else
+            echo "Error: Could not determine public IP for eth0" >&2
+        fi
     fi
+
 }
 
 # Delete namespace
@@ -135,19 +145,20 @@ peer_vpcs() {
     local vpc2=$2
     shift 2
     local allowed_cidrs=("$@")
-    local br1="vpc-$vpc1-br"
-    local br2="vpc-$vpc2-br"
+    local br=$3
+    
 
     if [ "$vpc1" == "$vpc2" ]; then
         echo "Error: VPC cannot peer with itself"
         return 1
     fi
 
-    run ip link add name "veth-$vpc1-$vpc2" type veth peer name "veth-$vpc2-$vpc1"
-    run ip link set "veth-$vpc1-$vpc2" master "$br1"
-    run ip link set "veth-$vpc2-$vpc1" master "$br2"
-    run ip link set "veth-$vpc1-$vpc2" up
-    run ip link set "veth-$vpc2-$vpc1" up
+    run ip link add name "veth-$vpc1" type veth peer name "veth-$vpc1-br"
+    run ip link add name "veth-$vpc2" type veth peer name "veth-$vpc2-br"
+    run ip link set "veth-$vpc1" master "$br"
+    run ip link set "veth-$vpc2" master "$br"
+    run ip link set "veth-$vpc1" up
+    run ip link set "veth-$vpc2" up
 
     # Add static routes for allowed CIDRs in all namespaces of both VPCs
     for ns in $(ip netns list | awk -F ': ' '{print $1}'); do
@@ -163,7 +174,7 @@ peer_vpcs() {
         fi
     done
 
-    echo "VPC '$vpc1' and '$vpc2' are peered ($br1 <-> $br2)"
+    echo "VPC '$vpc1' and '$vpc2' are peered ($br)"
     if [ ${#allowed_cidrs[@]} -gt 0 ]; then
         echo "Allowed cross-VPC CIDRs: ${allowed_cidrs[*]}"
     fi
@@ -173,12 +184,11 @@ peer_vpcs() {
 unpeer_vpcs() {
     local vpc1=$1
     local vpc2=$2
-    local br1="vpc-$vpc1-br"
-    local br2="vpc-$vpc2-br"
-
-    run ip link delete "veth-$vpc1-$vpc2" 2>/dev/null || true
-    run ip link delete "veth-$vpc2-$vpc1" 2>/dev/null || true
-
+    local br=$3
+        
+    run ip link delete "veth-$vpc1" 2>/dev/null || true
+    run ip link delete "veth-$vpc2" 2>/dev/null || true
+    run ip link delete "$br" 2>/dev/null || true
 }
 
 # List all VPCs and namespaces
