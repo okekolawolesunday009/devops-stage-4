@@ -185,7 +185,7 @@ unpeer_vpcs() {
     local vpc1=$1
     local vpc2=$2
     local br=$3
-        
+
     run ip link delete "veth-$vpc1" 2>/dev/null || true
     run ip link delete "veth-$vpc2" 2>/dev/null || true
     run ip link delete "$br" 2>/dev/null || true
@@ -274,8 +274,8 @@ case "$cmd" in
     delete_vpc) [ $# -ne 1 ] && usage; delete_vpc "$1" ;;
     create_ns) [ $# -ne 6 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
-    peer_vpcs) [ $# -ne 2 ] && usage; peer_vpcs "$1" "$2" ;;
-    unpeer_vpcs) [ $# -ne 2 ] && usage; unpeer_vpcs "$1" "$2" ;;
+    peer_vpcs) [ $# -ne 3 ] && usage; peer_vpcs "$1" "$2" "$3" ;;
+    unpeer_vpcs) [ $# -ne 3 ] && usage; unpeer_vpcs "$1" "$2" "$3" ;;
     list) echo "Listing not implemented"; ;;
     cleanup_all) cleanup_all ;;
     help) usage ;;
