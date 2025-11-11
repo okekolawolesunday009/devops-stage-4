@@ -27,11 +27,9 @@ Usage: vpcctl <command>
 Commands:
     create_vpc <vpc_name> <cidr_block> - create a new VPC
     delete_vpc <vpc_name> - delete a VPC
-    create_ns <vpc_name> <ns_name> <public_subnet | private_subnet> <public|private> - create a new namespace in a VPC
+    create_ns <vpc_name> <ns_name> <ip_cidr> <gateway_cidr> <bridge> <public|private> <nat_enabled> - create a new namespace in a VPC
     delete_ns <ns_name> - delete a namespace
-    peer_vpcs <vpc_name1> <vpc_name2> - peer two VPCs
-    unpeer_vpcs <vpc_name1> <vpc_name2> - (not implemented)
-    list           - (not implemented)
+    peer_vpcs <vpc_name1> <vpc_name2> <bridge> - peer two VPCs
     help           - show this help message
     cleanup_all    - cleanup all VPCs and namespaces
 EOF
@@ -44,8 +42,14 @@ create_vpc() {
     local cidr_block=$2
     local br="vpc-$name-br"
 
+    # Check if bridge already exists
+    if ip link show "$br" >/dev/null 2>&1; then
+        echo "Error: Bridge '$br' already exists" >&2
+        return 1
+    fi
+
     # Create bridge if it doesn't exist
-    run ip link show "$br" >/dev/null 2>&1 || run ip link add name "$br" type bridge
+    run ip link add name "$br" type bridge
 
     # Assign IP if not already assigned
     if ! ip -c addr show dev "$br" | grep "$cidr_block"; then 
@@ -61,13 +65,19 @@ create_vpc() {
     # The user must specify which subnets are public when creating namespaces.
     # Example usage: create_ns <vpc> <ns> <ip_cidr> <gateway_cidr> <bridge> <public|private>
 
-    echo "VPC '$name' created with gateway '$gateway_cidr' (bridge: '$br')"
+    echo "VPC '$name' created with CIDR '$cidr_block' (bridge: '$br')"
 }
 
 # Delete a VPC
 delete_vpc() {
     local name=$1
     local br="vpc-$name-br"
+
+    # Check if bridge exists
+    if ! ip link show "$br" >/dev/null 2>&1; then
+        echo "Error: Bridge '$br' does not exist" >&2
+        return 1
+    fi
 
     run ip link set "$br" down 2>/dev/null || true
     run ip link delete "$br" 2>/dev/null || true
@@ -85,6 +95,13 @@ create_ns() {
     local peer="veth-$namespace-br"
     local br=$5
     local subnet_type=$6  # 'public' or 'private'
+    local nat_enabled=$7
+
+    # Check if namespace already exists
+    if ip netns show "$namespace" >/dev/null 2>&1; then
+        echo "Error: Namespace '$namespace' already exists" >&2
+        return 1
+    fi
 
     # Create namespace
     run ip netns add "$namespace"
@@ -109,17 +126,13 @@ create_ns() {
     local gateway_ip=$(echo "$gateway_cidr" | cut -d'/' -f1)
     run ip netns exec "$namespace" ip route add default via "$gateway_ip" dev "$dev"
 
-    # Enable NAT if this is a public subnet
-    if [ "$subnet_type" == "public" ]; then
-    # Get the public IP address of the external interface (eth0)
+    # Enable NAT if nat_enabled is true
+    if [ "$nat_enabled" == "true" ]; then
         public_ip=$(ip -o -4 addr show dev eth0 | awk '{print $4}' | cut -d'/' -f1)
-
         if [ -n "$public_ip" ]; then
-            # Check if the SNAT rule already exists, otherwise add it
             iptables -t nat -C POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip" 2>/dev/null || \
             iptables -t nat -A POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip"
-
-            echo "Static SNAT enabled for public subnet $namespace ($ipcidr → $public_ip)"
+            echo "Static SNAT enabled for $namespace ($ipcidr → $public_ip)"
         else
             echo "Error: Could not determine public IP for eth0" >&2
         fi
@@ -130,6 +143,14 @@ create_ns() {
 # Delete namespace
 delete_ns() {
     local namespace=$1
+
+    # Remove NAT rule for this namespace
+    ipcidr=$(ip netns exec "$namespace" ip -o -4 addr show | awk '{print $4}' | head -n1)
+    public_ip=$(ip -o -4 addr show dev eth0 | awk '{print $4}' | cut -d'/' -f1)
+    if [ -n "$ipcidr" ] && [ -n "$public_ip" ]; then
+        iptables -t nat -D POSTROUTING -s "$ipcidr" -o eth0 -j SNAT --to-source "$public_ip" 2>/dev/null || true
+    fi
+
     run ip netns delete "$namespace" 2>/dev/null || true
 
     # Delete any associated veth interfaces
@@ -143,7 +164,6 @@ delete_ns() {
 peer_vpcs() {
     local vpc1=$1
     local vpc2=$2
-    shift 2
     local allowed_cidrs=("$@")
     local br=$3
     
@@ -267,16 +287,19 @@ remove_sg(){
 }   
 
 # Command parsing
+# Check required commands
+for cmd in ip iptables awk grep cut sysctl jq; do
+    command -v $cmd >/dev/null 2>&1 || { echo "$cmd is required but not installed. Aborting." >&2; exit 1; }
+done
+
 if [ $# -lt 1 ]; then usage; fi
 cmd=$1; shift
 case "$cmd" in
     create_vpc) [ $# -ne 2 ] && usage; create_vpc "$1" "$2" ;;
     delete_vpc) [ $# -ne 1 ] && usage; delete_vpc "$1" ;;
-    create_ns) [ $# -ne 6 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" ;;
+    create_ns) [ $# -ne 7 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" "$7" ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
     peer_vpcs) [ $# -ne 3 ] && usage; peer_vpcs "$1" "$2" "$3" ;;
-    unpeer_vpcs) [ $# -ne 3 ] && usage; unpeer_vpcs "$1" "$2" "$3" ;;
-    list) echo "Listing not implemented"; ;;
     cleanup_all) cleanup_all ;;
     help) usage ;;
     *) usage ;;
