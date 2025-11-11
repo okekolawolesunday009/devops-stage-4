@@ -11,6 +11,35 @@ This project includes a minimal VPC manager for Linux, implemented in `vpcctl.sh
 - Peer and unpeer namespaces with VPCs
 - List and clean up VPCs
 
+## Environment Variables
+
+The VPC setup uses environment variables for configuration. Copy `.env-example` to `.env` and adjust values as needed:
+
+| Variable            | Description                              | Example           |
+|---------------------|------------------------------------------|-------------------|
+| VPC_NAME            | Unique name for the virtual VPC           | vpc1              |
+| CIDR_BLOCK          | Base IP range (VPC CIDR block)            | 10.0.0.0/16       |
+| PUBLIC_SUBNET       | Subnet that allows NAT access             | 10.0.0.0/24       |
+| PRIVATE_SUBNET      | Subnet without internet access            | 10.0.1.0/24       |
+| INTERNET_INTERFACE  | Host’s outbound network interface         | eth0              |
+
+Example `.env`:
+```sh
+VPC_NAME="vpc1"
+CIDR_BLOCK="10.0.0.0/16"
+PUBLIC_SUBNET="10.0.0.0/24"
+PRIVATE_SUBNET="10.0.1.0/24"
+INTERNET_INTERFACE="eth0"
+```
+
+To use these variables in your shell scripts, source the `.env` file at the top of your script:
+
+```sh
+set -a
+[ -f .env ] && . .env
+set +a
+```
+
 ## Usage
 
 Run the script with the desired command:
