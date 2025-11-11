@@ -53,8 +53,16 @@ create_vpc() {
     fi
 
     run ip link set "$br" up
+
+    # Enable IP forwarding (idempotent)
+    sysctl -w net.ipv4.ip_forward=1
+
+    # Set up NAT for this bridge (for public subnets)
+    # The user must specify which subnets are public when creating namespaces.
+    # Example usage: create_ns <vpc> <ns> <ip_cidr> <gateway_cidr> <bridge> <public|private>
+
     echo "VPC '$name' created with gateway '$gateway_cidr' (bridge: '$br')"
-}
+
 
 # Delete a VPC
 delete_vpc() {
@@ -76,6 +84,7 @@ create_ns() {
     local dev="veth-$namespace"
     local peer="veth-$namespace-br"
     local br=$5
+    local subnet_type=$6  # 'public' or 'private'
 
     # Create namespace
     run ip netns add "$namespace"
@@ -99,6 +108,13 @@ create_ns() {
     # Set default route
     local gateway_ip=$(echo "$gateway_cidr" | cut -d'/' -f1)
     run ip netns exec "$namespace" ip route add default via "$gateway_ip" dev "$dev"
+
+    # Enable NAT if this is a public subnet
+    if [ "$subnet_type" == "public" ]; then
+        iptables -t nat -C POSTROUTING -s "$ipcidr" -o eth0 -j MASQUERADE 2>/dev/null || \
+        iptables -t nat -A POSTROUTING -s "$ipcidr" -o eth0 -j MASQUERADE
+        echo "NAT enabled for public subnet $namespace ($ipcidr)"
+    fi
 }
 
 # Delete namespace
@@ -133,6 +149,19 @@ peer_vpcs() {
 
     echo "VPC '$vpc1' and '$vpc2' are peered ($br1 <-> $br2)"
     echo "Add SG rules to control inter-VPC traffic if needed"
+}
+
+
+unpeer_vpcs() {
+    local vpc1=$1
+    local vpc2=$2
+    local br1="vpc-$vpc1-br"
+    local br2="vpc-$vpc2-br"
+
+    run ip link delete "veth-$vpc1-$vpc2" 2>/dev/null || true
+    run ip link delete "veth-$vpc2-$vpc1" 2>/dev/null || true
+
+    echo "VPC '$vpc1' and '$vpc2' are unpeered ($br1 <-> $br2)"
 }
 
 # Cleanup all VPCs and namespaces
