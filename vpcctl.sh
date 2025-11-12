@@ -126,6 +126,10 @@ create_ns() {
     local gateway_ip=$(echo "$gateway_cidr" | cut -d'/' -f1)
     run ip netns exec "$namespace" ip route add default via "$gateway_ip" dev "$dev"
 
+
+    
+  
+
     # Enable NAT if nat_enabled is true
     if [ "$nat_enabled" == "true" ]; then
         public_ip=$(ip -o -4 addr show dev "$br" | awk '{print $4}' | cut -d'/' -f1)
@@ -161,10 +165,16 @@ delete_ns() {
     echo "[SUCCESS] Namespace '$namespace' deleted and all associated interfaces removed."
 }
 
-# Peer two VPC bridges
+
+
+
+
+# Peer two VPCs with CIDR restrictions
 peer_vpcs() {
     local vpc1=$1
     local vpc2=$2
+    local cidr1=$3
+    local cidr2=$4
     local br1="vpc-$vpc1-br"
     local br2="vpc-$vpc2-br"
     local veth1="veth-$vpc1-$vpc2"
@@ -192,39 +202,14 @@ peer_vpcs() {
     run ip link set "$veth1" up
     run ip link set "$veth2" up
 
-    echo "VPC '$vpc1' and '$vpc2' are now peered via $veth1 <-> $veth2"
+    # Restrict traffic to allowed CIDRs only
+    iptables -A FORWARD -i "$veth1" -s "$cidr1" -d "$cidr2" -j ACCEPT
+    iptables -A FORWARD -i "$veth2" -s "$cidr2" -d "$cidr1" -j ACCEPT
+    iptables -A FORWARD -i "$veth1" -j DROP
+    iptables -A FORWARD -i "$veth2" -j DROP
+
+    echo "VPC '$vpc1' and '$vpc2' are now peered via $veth1 <-> $veth2 (allowed: $cidr1 <-> $cidr2)"
 }
-
-# Peer two VPCs
-peer_ns() {
-    local vpc_ns1=$1
-    local vpc_ns2=$2
-    local allowed_cidrs=("$@")
-    local br=$3
-    local cidr_ns1=$4
-    local cidr_ns2=$5
-    
-
-    if [ "$vpc_ns1" == "$vpc_ns2" ]; then
-        echo "Error: VPC namespace cannot peer with itself"
-        return 1
-    fi
-
-    run ip link add name "veth-$vpc_ns1" type veth peer name "veth-$vpc_ns1-br"
-    run ip link add name "veth-$vpc_ns2" type veth peer name "veth-$vpc_ns2-br"
-    run ip link set "veth-$vpc_ns1" master "$br"
-    run ip link set "veth-$vpc_ns2" master "$br"
-    run ip link set "veth-$vpc_ns1" up
-    run ip link set "veth-$vpc_ns2" up
-
-    
-    ip netns exec "$vpc_ns1" ip route add "$cidr_ns1" dev "veth-$vpc_ns1" || true
-    ip netns exec "$vpc_ns2" ip route add "$cidr_ns2" dev "veth-$vpc_ns2" || true
-
-    echo "VPC namespace '$vpc_ns1' and '$vpc_ns2' are peered ($br)"
-    
-}
-
 
 unpeer_ns() {
     local vpc_ns1=$1
@@ -233,6 +218,7 @@ unpeer_ns() {
 
     run ip link delete "veth-$vpc_ns1" 2>/dev/null || true
     run ip link delete "veth-$vpc_ns2" 2>/dev/null || true
+    run ip link down "$br" 2>/dev/null || true
     run ip link delete "$br" 2>/dev/null || true
 }
 
@@ -325,7 +311,7 @@ case "$cmd" in
     create_ns) [ $# -ne 7 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" "$7" ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
     peer_ns) [ $# -ne 5 ] && usage; peer_ns "$1" "$2" "$3" "$4" "$5" ;;
-    peer_vpcs) [ $# -ne 2 ] && usage; peer_vpcs "$1" "$2" ;;
+    peer_vpcs) [ $# -ne 4 ] && usage; peer_vpcs "$1" "$2" "$3" "$4" ;;
     cleanup_all) cleanup_all ;;
     help) usage ;;
     *) usage ;;
