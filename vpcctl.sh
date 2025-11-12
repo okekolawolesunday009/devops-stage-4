@@ -65,7 +65,7 @@ create_vpc() {
     # The user must specify which subnets are public when creating namespaces.
     # Example usage: create_ns <vpc> <ns> <ip_cidr> <gateway_cidr> <bridge> <public|private>
 
-    echo "VPC '$name' created with CIDR '$cidr_block' (bridge: '$br')"
+    echo "[SUCCESS] VPC '$name' created with CIDR '$cidr_block' (bridge: '$br')"
 }
 
 # Delete a VPC
@@ -82,7 +82,7 @@ delete_vpc() {
     run ip link set "$br" down 2>/dev/null || true
     run ip link delete "$br" 2>/dev/null || true
 
-    echo "VPC '$name' deleted (bridge: '$br')"
+    echo "[SUCCESS] VPC '$name' deleted (bridge: '$br')"
 }
 
 # Create namespace and attach to VPC
@@ -105,7 +105,7 @@ create_ns() {
 
     # Create namespace
     run ip netns add "$namespace"
-    echo "Namespace '$namespace' created"
+    echo "[SUCCESS] Namespace '$namespace' created and attached to bridge '$br' with IP '$ipcidr'"
 
     # Create veth pair
     run ip link add "$dev" type veth peer name "$peer"
@@ -158,7 +158,7 @@ delete_ns() {
     for p in $(ip -o link show | awk -F ': ' '{print $2}' | grep -E "veth-$namespace-br|veth-$namespace$" || true); do
         run ip link delete "$p" 2>/dev/null || true
     done
-    echo "Namespace '$namespace' deleted"
+    echo "[SUCCESS] Namespace '$namespace' deleted and all associated interfaces removed."
 }
 
 # Peer two VPC bridges
@@ -201,10 +201,12 @@ peer_ns() {
     local vpc_ns2=$2
     local allowed_cidrs=("$@")
     local br=$3
+    local cidr_ns1=$4
+    local cidr_ns2=$5
     
 
     if [ "$vpc_ns1" == "$vpc_ns2" ]; then
-        echo "Error: VPC cannot peer with itself"
+        echo "Error: VPC namespace cannot peer with itself"
         return 1
     fi
 
@@ -215,24 +217,12 @@ peer_ns() {
     run ip link set "veth-$vpc_ns1" up
     run ip link set "veth-$vpc_ns2" up
 
-    # Add static routes for allowed CIDRs in all namespaces of both VPCs
-    for ns in $(ip netns list | awk -F ': ' '{print $1}'); do
-        ns_vpc=$(echo $ns | cut -d'-' -f1)
-        if [ "$ns_vpc" == "$vpc1" ]; then
-            for cidr in "${allowed_cidrs[@]}"; do
-                ip netns exec "$ns" ip route add "$cidr" dev "veth-$vpc1-$vpc2" || true
-            done
-        elif [ "$ns_vpc" == "$vpc2" ]; then
-            for cidr in "${allowed_cidrs[@]}"; do
-                ip netns exec "$ns" ip route add "$cidr" dev "veth-$vpc2-$vpc1" || true
-            done
-        fi
-    done
+    
+    ip netns exec "$vpc_ns1" ip route add "$cidr_ns1" dev "veth-$vpc_ns1" || true
+    ip netns exec "$vpc_ns2" ip route add "$cidr_ns2" dev "veth-$vpc_ns2" || true
 
-    echo "VPC '$vpc1' and '$vpc2' are peered ($br)"
-    if [ ${#allowed_cidrs[@]} -gt 0 ]; then
-        echo "Allowed cross-VPC CIDRs: ${allowed_cidrs[*]}"
-    fi
+    echo "VPC namespace '$vpc_ns1' and '$vpc_ns2' are peered ($br)"
+    
 }
 
 
@@ -273,7 +263,7 @@ cleanup_all() {
     run iptables -F
     run iptables -t nat -F
 
-    echo "All VPCs and namespaces cleaned up"
+    echo "[CLEANUP COMPLETE] All VPCs, namespaces, and associated resources have been removed."
 }
 
 add_sg(){
@@ -334,7 +324,7 @@ case "$cmd" in
     delete_vpc) [ $# -ne 1 ] && usage; delete_vpc "$1" ;;
     create_ns) [ $# -ne 7 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" "$7" ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
-    peer_ns) [ $# -ne 3 ] && usage; peer_ns "$1" "$2" "$3" ;;
+    peer_ns) [ $# -ne 5 ] && usage; peer_ns "$1" "$2" "$3" "$4" "$5" ;;
     peer_vpcs) [ $# -ne 2 ] && usage; peer_vpcs "$1" "$2" ;;
     cleanup_all) cleanup_all ;;
     help) usage ;;
