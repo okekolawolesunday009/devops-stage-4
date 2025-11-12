@@ -180,7 +180,7 @@ delete_ns() {
 
 # Peer two VPCs with CIDR restrictions
 peer_vpcs() {
-    local vpc1=${VPC_NAME:-$1}
+    local vpc1=$1
     local vpc2=$2
     local cidr1=$3       # CIDR of VPC1
     local cidr2=$4       # CIDR of VPC2
@@ -193,38 +193,16 @@ peer_vpcs() {
         return 1
     fi
 
-     # Define veth pair names
-    local veth1="veth-${vpc1}-${vpc2}"
-    local veth2="veth-${vpc2}-${vpc1}"
-
-    # Create veth pair
-    run ip link add "$veth1" type veth peer name "$veth2"
-
-    # Attach ends to namespaces
-    run ip link set "$veth1" netns "$vpc1"
-    run ip link set "$veth2" netns "$vpc2"
-
-    # Bring up interfaces inside each namespace
-    run ip netns exec "$vpc1" ip link set "$veth1" up
-    run ip netns exec "$vpc2" ip link set "$veth2" up
-
-    # Assign IPs to veth interfaces (just use .254 as peering gateway)
-    local ip1="${gw1%.*}.254"
-    local ip2="${gw2%.*}.254"
-    run ip netns exec "$vpc1" ip addr add "$ip1/32" dev "$veth1"
-    run ip netns exec "$vpc2" ip addr add "$ip2/32" dev "$veth2"
+    echo "🔗 Peering $vpc1 ($cidr1) <-> $vpc2 ($cidr2)"    
 
     # Add routes so each namespace can reach the other’s subnet
-    run ip netns exec "$vpc1" ip route add "$cidr2" via "$ip2"
-    run ip netns exec "$vpc2" ip route add "$cidr1" via "$ip1"
+    run ip netns exec "$vpc1" ip route add "$cidr2" via "$gw1"
+    run ip netns exec "$vpc2" ip route add "$cidr1" via "$gw2"
 
     # Add iptables FORWARD rules (host level)
     run iptables -A FORWARD -s "$cidr1" -d "$cidr2" -j ACCEPT
     run iptables -A FORWARD -s "$cidr2" -d "$cidr1" -j ACCEPT
 
-    # Drop everything else between them (to simulate security groups)
-    run iptables -A FORWARD -i "$veth1" -j DROP
-    run iptables -A FORWARD -i "$veth2" -j DROP
 
 
     echo "✅ VPCs '$vpc1' and '$vpc2' are now peered (allowed: $cidr1 <-> $cidr2)"
@@ -232,7 +210,7 @@ peer_vpcs() {
 
 
 unpeer_vpcs() {
-    local vpc1=${VPC_NAME:-$1}
+    local vpc1=$1
     local vpc2=$2
     local cidr1=$3
     local cidr2=$4
@@ -241,24 +219,13 @@ unpeer_vpcs() {
 
     echo "🔌 Unpeering $vpc1 <-> $vpc2"
 
-    local veth1="veth-${vpc1}-${vpc2}"
-
-    echo "🔌 Unpeering $vpc1 <-> $vpc2"
-
     # Remove routes
     run ip netns exec "$vpc1" ip route del "$cidr2" 2>/dev/null || true
     run ip netns exec "$vpc2" ip route del "$cidr1" 2>/dev/null || true
 
-    # Remove veth pair (deleting one side removes both)
-    run ip link delete "$veth1" 2>/dev/null || true
-
     # Remove iptables rules
     run iptables -D FORWARD -s "$cidr1" -d "$cidr2" -j ACCEPT 2>/dev/null || true
     run iptables -D FORWARD -s "$cidr2" -d "$cidr1" -j ACCEPT 2>/dev/null || true
-
-    # Optional: flush restrictive drop rules
-    run iptables -D FORWARD -i "veth-${vpc1}-${vpc2}" -j DROP 2>/dev/null || true
-    run iptables -D FORWARD -i "veth-${vpc2}-${vpc1}" -j DROP 2>/dev/null || true
 
     echo "✅ Unpeering complete between $vpc1 and $vpc2"
 }
