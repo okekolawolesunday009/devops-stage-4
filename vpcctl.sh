@@ -268,6 +268,7 @@ add_sg(){
     local ns=$2
     local cidr=$3
     local policy_file=$4
+    local apply=$5  # -a flag (true/false), currently not used but accepted
 
     rules=$(awk -v cidr="$cidr" 'BEGIN{RS="{";FS=","} /subnet/ && $0 ~ cidr {for(i=1;i<=NF;i++){if($i~"ingress"){gsub(/\[|\]|}/,"",$i); print $i}}}' "$policy_file")
 
@@ -291,6 +292,7 @@ remove_sg(){
     local ns=$2
     local cidr=$3
     local policy_file=$4
+    local apply=$5  # -a flag (true/false), currently not used but accepted
 
     rules=$(awk -v cidr="$cidr" 'BEGIN{RS="{";FS=","} /subnet/ && $0 ~ cidr {for(i=1;i<=NF;i++){if($i~"ingress"){gsub(/\[|\]|}/,"",$i); print $i}}}' "$policy_file")
 
@@ -383,34 +385,36 @@ case "$cmd" in
       ;;
     cleanup_all) cleanup_all ;;
     add_sg)
-      # Flags: -v <vpc_name> -n <namespace> -c <subnet_cidr> -p <policy_file>
-      VPC_NAME=""; NS_NAME=""; CIDR_BLOCK=""; POLICY_FILE=""
-      while getopts "v:n:c:p:h" opt; do
+      # Flags: -v <vpc_name> -n <namespace> -c <subnet_cidr> -p <policy_file> -a <apply>
+      VPC_NAME=""; NS_NAME=""; CIDR_BLOCK=""; POLICY_FILE=""; APPLY=""
+      while getopts "v:n:c:p:a:h" opt; do
         case $opt in
           v) VPC_NAME="$OPTARG";;
           n) NS_NAME="$OPTARG";;
           c) CIDR_BLOCK="$OPTARG";;
           p) POLICY_FILE="$OPTARG";;
+          a) APPLY="$OPTARG";;
           h) usage;;
         esac
       done
       shift $((OPTIND-1))
-      add_sg "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${POLICY_FILE:-$4}"
+      add_sg "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${POLICY_FILE:-$4}" "${APPLY:-$5}"
       ;;
     remove_sg)
-      # Flags: -v <vpc_name> -n <namespace> -c <subnet_cidr> -p <policy_file>
-      VPC_NAME=""; NS_NAME=""; CIDR_BLOCK=""; POLICY_FILE=""
-      while getopts "v:n:c:p:h" opt; do
+      # Flags: -v <vpc_name> -n <namespace> -c <subnet_cidr> -p <policy_file> -a <apply>
+      VPC_NAME=""; NS_NAME=""; CIDR_BLOCK=""; POLICY_FILE=""; APPLY=""
+      while getopts "v:n:c:p:a:h" opt; do
         case $opt in
           v) VPC_NAME="$OPTARG";;
           n) NS_NAME="$OPTARG";;
           c) CIDR_BLOCK="$OPTARG";;
           p) POLICY_FILE="$OPTARG";;
+          a) APPLY="$OPTARG";;
           h) usage;;
         esac
       done
       shift $((OPTIND-1))
-      remove_sg "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${POLICY_FILE:-$4}"
+      remove_sg "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${POLICY_FILE:-$4}" "${APPLY:-$5}"
       ;;
     help) usage ;;
     *) usage ;;
