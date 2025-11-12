@@ -180,15 +180,15 @@ delete_ns() {
 # Peer two VPCs with CIDR restrictions
 peer_vpcs() {
     local vpc1=${VPC_NAME:-$1}
-    local vpc2=${VPC_NAME:-$2}
-    local cidr1=${CIDR_BLOCK:-$3}
-    local cidr2=${CIDR_BLOCK:-$4}
+    local vpc2=${$2}
+    local cidr1=${$3}
+    local cidr2=${$4}
     local br1="vpc-$vpc1-br"
     local br2="vpc-$vpc2-br"
     local veth1="veth-$vpc1-$vpc2"
     local veth2="veth-$vpc2-$vpc1"
 
-    if [ "$vpc1" == "$vpc2" ]; then
+    if [ "$vpc1" == "$vpc2" ]; then 
         echo "Error: Cannot peer a VPC with itself" >&2
         return 1
     fi
