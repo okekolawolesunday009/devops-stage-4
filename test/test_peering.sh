@@ -6,7 +6,7 @@ set -euo pipefail
 log() { echo "$1"; }
 
 log "[Test] Peering VPCs with CIDR restrictions (192.168.1.0/24 <-> 192.168.2.0/24)..."
-bash vpcctl.sh peer_vpcs -v ns1 -w ns3 -c 192.168.2.0/24 -d 192.168.1.0/24 -g 192.168.1.0 -h 192.168.2.0
+bash vpcctl.sh peer_vpcs -v ns1 -w ns3 -c 192.168.1.10/24 -d 192.168.2.10/24 -g 192.168.2.1 -h 192.168.1.1
 
 sleep 1
 log "[Test] After VPC peering (only allowed subnets should communicate)..."
