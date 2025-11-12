@@ -29,15 +29,15 @@ log() {
 
 # 1. Create VPCs and subnets
 log "[1] Creating VPCs and subnets..."
-bash vpcctl.sh create_vpc vpc1 10.0.0.0/16
-bash vpcctl.sh create_vpc vpc2 10.1.0.0/16
+bash vpcctl.sh create_vpc vpc1 192.168.1.0/24
+bash vpcctl.sh create_vpc vpc2 192.168.2.0/24
 
 # Create namespaces (subnets): public and private in vpc1
-bash vpcctl.sh create_ns vpc1 ns1 10.0.0.10/24 10.0.0.1/24 vpc-vpc1-br public true   # public subnet with NAT
-bash vpcctl.sh create_ns vpc1 ns2 10.0.1.10/24 10.0.1.1/24 vpc-vpc1-br private false # private subnet, no NAT
+bash vpcctl.sh create_ns vpc1 ns1 192.168.1.10/24 192.168.1.1/24 vpc-vpc1-br public true   # public subnet with NAT
+bash vpcctl.sh create_ns vpc1 ns2 192.168.1.20/24 192.168.1.1/24 vpc-vpc1-br private false # private subnet, no NAT
 
 # Create namespace in vpc2
-bash vpcctl.sh create_ns vpc2 ns3 10.1.0.10/24 10.1.0.1/24 vpc-vpc2-br public true
+bash vpcctl.sh create_ns vpc2 ns3 192.168.2.10/24 192.168.2.1/24 vpc-vpc2-br public true
 
 # 2. Deploy simple web servers in each namespace
 log "[2] Deploying web servers..."
@@ -62,8 +62,8 @@ done
 
 # 3. Test communication between subnets in same VPC
 log "[3] Testing intra-VPC subnet communication (ns1 <-> ns2)..."
-ip netns exec ns1 curl -s --connect-timeout 2 http://10.0.1.10:8080 && log "ns1 can reach ns2 (PASS)" || log "ns1 cannot reach ns2 (FAIL)"
-ip netns exec ns2 curl -s --connect-timeout 2 http://10.0.0.10:8080 && log "ns2 can reach ns1 (PASS)" || log "ns2 cannot reach ns1 (FAIL)"
+ip netns exec ns1 curl -s --connect-timeout 2 http://192.168.1.20:8080 && log "ns1 can reach ns2 (PASS)" || log "ns1 cannot reach ns2 (FAIL)"
+ip netns exec ns2 curl -s --connect-timeout 2 http://192.168.1.10:8080 && log "ns2 can reach ns1 (PASS)" || log "ns2 cannot reach ns1 (FAIL)"
 
 # 4. Test outbound access
 log "[4] Testing outbound access..."
@@ -72,28 +72,28 @@ ip netns exec ns2 curl -s --connect-timeout 2 https://example.com && log "ns2 ou
 
 # 5. Test inter-VPC communication (should fail)
 log "[5] Testing inter-VPC communication (ns1 <-> ns3, expect blocked)..."
-ip netns exec ns1 curl -s --connect-timeout 2 http://10.1.0.10:8080 && log "ns1 can reach ns3 (FAIL)" || log "ns1 cannot reach ns3 (PASS)"
-ip netns exec ns3 curl -s --connect-timeout 2 http://10.0.0.10:8080 && log "ns3 can reach ns1 (FAIL)" || log "ns3 cannot reach ns1 (PASS)"
+ip netns exec ns1 curl -s --connect-timeout 2 http://192.168.2.10:8080 && log "ns1 can reach ns3 (FAIL)" || log "ns1 cannot reach ns3 (PASS)"
+ip netns exec ns3 curl -s --connect-timeout 2 http://192.168.1.10:8080 && log "ns3 can reach ns1 (FAIL)" || log "ns3 cannot reach ns1 (PASS)"
 
 # 6. Peer namespaces and retest
 log "[6] Peering namespaces (ns1 <-> ns3)..."
 bash vpcctl.sh peer_ns ns1 ns3 vpc-vpc1-br
 sleep 1
 log "[6] Testing after namespace peering (should be allowed if routes are set)..."
-ip netns exec ns1 curl -s --connect-timeout 2 http://10.1.0.10:8080 && log "ns1 can reach ns3 after ns peering (PASS)" || log "ns1 cannot reach ns3 after ns peering (FAIL)"
-ip netns exec ns3 curl -s --connect-timeout 2 http://10.0.0.10:8080 && log "ns3 can reach ns1 after ns peering (PASS)" || log "ns3 cannot reach ns1 after ns peering (FAIL)"
+ip netns exec ns1 curl -s --connect-timeout 2 http://192.168.2.10:8080 && log "ns1 can reach ns3 after ns peering (PASS)" || log "ns1 cannot reach ns3 after ns peering (FAIL)"
+ip netns exec ns3 curl -s --connect-timeout 2 http://192.168.1.10:8080 && log "ns3 can reach ns1 after ns peering (PASS)" || log "ns3 cannot reach ns1 after ns peering (FAIL)"
 
 # 7. Peer VPCs and retest
 log "[7] Peering VPCs..."
 bash vpcctl.sh peer_vpcs vpc1 vpc2
 sleep 1
 log "[7] Testing after VPC peering (should be allowed)..."
-ip netns exec ns1 curl -s --connect-timeout 2 http://10.1.0.10:8080 && log "ns1 can reach ns3 after VPC peering (PASS)" || log "ns1 cannot reach ns3 after VPC peering (FAIL)"
+ip netns exec ns1 curl -s --connect-timeout 2 http://192.168.2.10:8080 && log "ns1 can reach ns3 after VPC peering (PASS)" || log "ns1 cannot reach ns3 after VPC peering (FAIL)"
 
 # 7. Policy enforcement test (example: block ns2 -> ns1)
 log "[7] Enforcing policy: block ns2 -> ns1..."
-ip netns exec ns2 iptables -A OUTPUT -d 10.0.0.10 -j REJECT
-ip netns exec ns2 curl -s --connect-timeout 2 http://10.0.0.10:8080 && log "ns2 can reach ns1 (FAIL: should be blocked)" || log "ns2 cannot reach ns1 (PASS: blocked as expected)"
+ip netns exec ns2 iptables -A OUTPUT -d 192.168.1.10 -j REJECT
+ip netns exec ns2 curl -s --connect-timeout 2 http://192.168.1.10:8080 && log "ns2 can reach ns1 (FAIL: should be blocked)" || log "ns2 cannot reach ns1 (PASS: blocked as expected)"
 
 # 8. Logging state
 log "[8] Listing VPC state..."

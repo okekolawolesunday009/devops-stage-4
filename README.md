@@ -63,8 +63,11 @@ Run the script with the desired command:
 - `delete_ns <namespace>`  
   Delete the specified namespace.
 
+- `peer_ns <namespace1> <namespace2> <bridge>`  
+  Peer two network namespaces (subnets) by connecting them to a bridge and enabling routing between them. Use this for fine-grained, namespace-level peering.
+
 - `peer_vpcs <vpc_name1> <vpc_name2>`  
-  Peer two VPCs (connect bridges).
+  Peer two VPCs (connect bridges) by creating a veth pair between their bridges. Use this for VPC-level (bridge-level) peering.
 
 - `unpeer_vpcs <vpc_name1> <vpc_name2>`  
   Unpeer two VPCs.

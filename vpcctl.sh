@@ -264,7 +264,7 @@ cleanup_all() {
     done
 
     # Delete bridges
-    for br in $(ip link show | awk -F ': ' '{print $2}' | grep -E 'vpc-.*-br' || true); do
+    for br in $(ip link show | awk -F ': ' '{print $2}' | grep -E '.*-br' || true); do
         run ip link set "$br" down 2>/dev/null || true
         run ip link delete "$br" 2>/dev/null || true
     done
