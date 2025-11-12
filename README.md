@@ -112,19 +112,20 @@ See `test/test_firewall_json.sh` for a full test scenario.
 
 ```sh
 # Create a VPC named 'dev' with gateway 10.0.0.1/24
-./vpcctl.sh create_vpc dev 10.0.0.1/24
+./vpcctl.sh create_vpc -v vpc1 -c 192.168.1.0/24
 
 # Create a public subnet 'pub1' in VPC 'dev' (NAT enabled)
-./vpcctl.sh create_ns dev pub1 10.0.0.2/24 10.0.0.1/24 vpc-dev-br public
+./vpcctl.sh create_ns -v vpc1 -n ns1 -c 192.168.1.10/24 -g 192.168.1.1/24 -b vpc-vpc1-br -t public -a true -i etho
 
 # Create a private subnet 'priv1' in VPC 'dev' (internal-only)
-./vpcctl.sh create_ns dev priv1 10.0.0.3/24 10.0.0.1/24 vpc-dev-br private
+./vpcctl.sh create_ns -v vpc1 -n ns2 -c 192.168.1.20/24 -g 192.168.1.1/24 -b vpc-vpc1-br -t private -a false -i etho
 
 # Peer two VPCs, allowing only specific CIDRs to communicate
-./vpcctl.sh peer_vpcs dev vpc2 10.0.0.0/24 10.1.0.0/24
+./vpcctl.sh peer_vpcs -v vpc1 -v vpc2 -c 192.168.1.0/24 -c 192.168.2.0/24
+
 
 # Unpeer two VPCs
-./vpcctl.sh unpeer_vpcs dev vpc2
+./vpcctl.sh unpeer_vpcs -v vpc1 -v vpc2
 
 # Cleanup all
 ./vpcctl.sh cleanup_all
