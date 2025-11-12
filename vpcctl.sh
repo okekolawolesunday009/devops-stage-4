@@ -262,6 +262,30 @@ unpeer_vpcs() {
 
     echo "✅ Unpeering complete between $vpc1 and $vpc2"
 }
+
+cleanup_all() {
+    echo "Cleaning up all VPCs and namespaces"
+    read -p "Proceed with caution (y/n)? " ans
+    [ "${ans,,}" == "y" ] || return 1
+
+    # Delete namespaces
+    for ns in $(ip netns list | awk -F ': ' '{print $1}' || true); do
+        run ip netns delete "$ns" 2>/dev/null || true
+    done
+
+    # Delete bridges
+    for br in $(ip link show | awk -F ': ' '{print $2}' | grep -E '.*-br' || true); do
+        run ip link set "$br" down 2>/dev/null || true
+        run ip link delete "$br" 2>/dev/null || true
+    done
+
+    # Flush iptables
+    run iptables -F
+    run iptables -t nat -F
+
+    echo "[CLEANUP COMPLETE] All VPCs, namespaces, and associated resources have been removed."
+}
+
 # add_sg and remove_sg retain positional args for simplicity
 add_sg(){
     local vpc=$1
