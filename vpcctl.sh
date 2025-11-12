@@ -39,8 +39,8 @@ EOF
 # Load environment variables
 set -a
 [ -f .env ] && . .env
-set +a\
-# from env
+set +a
+
 
 
 # Create a VPC (Linux bridge)
