@@ -36,10 +36,17 @@ EOF
     exit 1
 }
 
+# Load environment variables
+set -a
+[ -f .env ] && . .env
+set +a\
+# from env
+
+
 # Create a VPC (Linux bridge)
 create_vpc() {
-    local name=${VPC1:-$1}
-    local cidr_block=${CIDR1:-$2}
+    local name=${VPC_NAME:-$1}
+    local cidr_block=${CIDR_BLOCK:-$2}
     local br="vpc-$name-br"
 
     # Check if bridge already exists
@@ -87,15 +94,16 @@ delete_vpc() {
 
 # Create namespace and attach to VPC
 create_ns() {
-    local vpc=${VPC1:-$1}
-    local namespace=${NS1:-$2}
-    local ipcidr=${CIDR1:-$3}
+    local vpc=${VPC_NAME:-$1}
+    local namespace=${NS_NAME:-$2}
+    local ipcidr=${CIDR_BLOCK:-$3}
     local gateway_cidr=${GW1:-$4}
     local dev="veth-$namespace"
     local peer="veth-$namespace-br"
     local br=${BR1:-$5}
     local subnet_type=${SUBNET_TYPE:-$6}  # 'public' or 'private'
     local nat_enabled=${NAT_ENABLED:-$7}
+    local internet_interface=${INTERNET_INTERFACE:-$8}
 
     # Check if namespace already exists
     if ip netns list | grep -qw "$namespace"; then
@@ -138,7 +146,7 @@ create_ns() {
             iptables -t nat -A POSTROUTING -s "$ipcidr" -o "$br" -j SNAT --to-source "$public_ip"
             echo "Static SNAT enabled for $namespace ($ipcidr → $public_ip)"
         else
-            echo "Error: Could not determine public IP for eth0" >&2
+            echo "Error: Could not determine public IP for $internet_interface" >&2
         fi
     fi
 
@@ -171,10 +179,10 @@ delete_ns() {
 
 # Peer two VPCs with CIDR restrictions
 peer_vpcs() {
-    local vpc1=${VPC1:-$1}
-    local vpc2=${VPC2:-$2}
-    local cidr1=${CIDR1:-$3}
-    local cidr2=${CIDR2:-$4}
+    local vpc1=${VPC_NAME:-$1}
+    local vpc2=${VPC_NAME:-$2}
+    local cidr1=${CIDR_BLOCK:-$3}
+    local cidr2=${CIDR_BLOCK:-$4}
     local br1="vpc-$vpc1-br"
     local br2="vpc-$vpc2-br"
     local veth1="veth-$vpc1-$vpc2"
@@ -254,6 +262,7 @@ cleanup_all() {
     echo "[CLEANUP COMPLETE] All VPCs, namespaces, and associated resources have been removed."
 }
 
+# add_sg and remove_sg retain positional args for simplicity
 add_sg(){
     local vpc=$1
     local ns=$2
@@ -308,12 +317,71 @@ done
 if [ $# -lt 1 ]; then usage; fi
 cmd=$1; shift
 case "$cmd" in
-    create_vpc) [ $# -ne 2 ] && usage; create_vpc "$1" "$2" ;;
+    create_vpc)
+      # Flags: -v <vpc_name> -c <cidr_block>
+      VPC_NAME=""; CIDR_BLOCK=""
+      while getopts "v:c:h" opt; do
+        case $opt in
+          v) VPC_NAME="$OPTARG";;
+          c) CIDR_BLOCK="$OPTARG";;
+          h) usage;;
+        esac
+      done
+      shift $((OPTIND-1))
+      create_vpc "${VPC_NAME:-$1}" "${CIDR_BLOCK:-$2}"
+      ;;
     delete_vpc) [ $# -ne 1 ] && usage; delete_vpc "$1" ;;
-    create_ns) [ $# -ne 7 ] && usage; create_ns "$1" "$2" "$3" "$4" "$5" "$6" "$7" ;;
+    create_ns)
+      # Flags: -v <vpc_name> -n <namespace> -c <ipcidr> -g <gateway_cidr> -b <bridge> -t <public|private> -a <nat_enabled> -i <internet_interface>
+      VPC_NAME=""; NS_NAME=""; CIDR_BLOCK=""; GW1=""; BR1=""; SUBNET_TYPE=""; NAT_ENABLED=""; INTERNET_INTERFACE=""
+      while getopts "v:n:c:g:b:t:a:i:h" opt; do
+        case $opt in
+          v) VPC_NAME="$OPTARG";;
+          n) NS_NAME="$OPTARG";;
+          c) CIDR_BLOCK="$OPTARG";;
+          g) GW1="$OPTARG";;
+          b) BR1="$OPTARG";;
+          t) SUBNET_TYPE="$OPTARG";;
+          a) NAT_ENABLED="$OPTARG";;
+          i) INTERNET_INTERFACE="$OPTARG";;
+          h) usage;;
+        esac
+      done
+      shift $((OPTIND-1))
+      create_ns "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${GW1:-$4}" "${BR1:-$5}" "${SUBNET_TYPE:-$6}" "${NAT_ENABLED:-$7}" "${INTERNET_INTERFACE:-$8}"
+      ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
-    peer_ns) [ $# -ne 5 ] && usage; peer_ns "$1" "$2" "$3" "$4" "$5" ;;
-    peer_vpcs) [ $# -ne 4 ] && usage; peer_vpcs "$1" "$2" "$3" "$4" ;;
+    peer_ns)
+      # Flags: -n <ns1> -m <ns2> -b <bridge> -c <cidr1> -d <cidr2>
+      NS1=""; NS2=""; BR1=""; CIDR1=""; CIDR2=""
+      while getopts "n:m:b:c:d:h" opt; do
+        case $opt in
+          n) NS1="$OPTARG";;
+          m) NS2="$OPTARG";;
+          b) BR1="$OPTARG";;
+          c) CIDR1="$OPTARG";;
+          d) CIDR2="$OPTARG";;
+          h) usage;;
+        esac
+      done
+      shift $((OPTIND-1))
+      peer_ns "${NS1:-$1}" "${NS2:-$2}" "${BR1:-$3}" "${CIDR1:-$4}" "${CIDR2:-$5}"
+      ;;
+    peer_vpcs)
+      # Flags: -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2>
+      VPC_NAME=""; VPC2=""; CIDR_BLOCK=""; CIDR2=""
+      while getopts "v:w:c:d:h" opt; do
+        case $opt in
+          v) VPC_NAME="$OPTARG";;
+          w) VPC2="$OPTARG";;
+          c) CIDR_BLOCK="$OPTARG";;
+          d) CIDR2="$OPTARG";;
+          h) usage;;
+        esac
+      done
+      shift $((OPTIND-1))
+      peer_vpcs "${VPC_NAME:-$1}" "${VPC2:-$2}" "${CIDR_BLOCK:-$3}" "${CIDR2:-$4}"
+      ;;
     cleanup_all) cleanup_all ;;
     help) usage ;;
     *) usage ;;
