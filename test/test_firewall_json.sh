@@ -19,7 +19,7 @@ cat > security_groups.json <<EOF
 EOF
 
 log "[Firewall Test] Applying security group to ns1 (allow 8080, deny 22)"
-bash vpcctl.sh add_sg vpc1 ns1 192.168.1.0/24 security_groups.json
+bash vpcctl.sh add_sg -v vpc1 -n ns1 -c 192.168.1.0/24 -p security_groups.json -a true
 
 log "[Firewall Test] Testing allowed port (8080)..."
 ip netns exec ns1 python3 -m http.server 8080 &
@@ -32,4 +32,4 @@ sleep 1
 nc -zv 192.168.1.10 22 && log "Port 22 allowed (FAIL)" || log "Port 22 blocked (PASS)"
 
 log "[Firewall Test] Removing security group from ns1..."
-bash vpcctl.sh remove_sg vpc1 ns1 192.168.1.0/24 security_groups.json
+bash vpcctl.sh remove_sg -v vpc1 -n ns1 -c 192.168.1.0/24 -p security_groups.json -a false

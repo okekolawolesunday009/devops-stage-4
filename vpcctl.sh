@@ -351,22 +351,6 @@ case "$cmd" in
       create_ns "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${GW1:-$4}" "${BR1:-$5}" "${SUBNET_TYPE:-$6}" "${NAT_ENABLED:-$7}" "${INTERNET_INTERFACE:-$8}"
       ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
-    peer_ns)
-      # Flags: -n <ns1> -m <ns2> -b <bridge> -c <cidr1> -d <cidr2>
-      NS1=""; NS2=""; BR1=""; CIDR1=""; CIDR2=""
-      while getopts "n:m:b:c:d:h" opt; do
-        case $opt in
-          n) NS1="$OPTARG";;
-          m) NS2="$OPTARG";;
-          b) BR1="$OPTARG";;
-          c) CIDR1="$OPTARG";;
-          d) CIDR2="$OPTARG";;
-          h) usage;;
-        esac
-      done
-      shift $((OPTIND-1))
-      peer_ns "${NS1:-$1}" "${NS2:-$2}" "${BR1:-$3}" "${CIDR1:-$4}" "${CIDR2:-$5}"
-      ;;
     peer_vpcs)
       # Flags: -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2>
       VPC_NAME=""; VPC2=""; CIDR_BLOCK=""; CIDR2=""
@@ -382,7 +366,52 @@ case "$cmd" in
       shift $((OPTIND-1))
       peer_vpcs "${VPC_NAME:-$1}" "${VPC2:-$2}" "${CIDR_BLOCK:-$3}" "${CIDR2:-$4}"
       ;;
+    unpeer_vpcs)
+      # Flags: -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2>
+      VPC_NAME=""; VPC2=""; CIDR_BLOCK=""; CIDR2=""
+      while getopts "v:w:c:d:h" opt; do
+        case $opt in
+          v) VPC_NAME="$OPTARG";;
+          w) VPC2="$OPTARG";;
+          c) CIDR_BLOCK="$OPTARG";;
+          d) CIDR2="$OPTARG";;
+          h) usage;;
+        esac
+      done
+      shift $((OPTIND-1))
+      unpeer_vpcs "${VPC_NAME:-$1}" "${VPC2:-$2}" "${CIDR_BLOCK:-$3}" "${CIDR2:-$4}"
+      ;;
     cleanup_all) cleanup_all ;;
+    add_sg)
+      # Flags: -v <vpc_name> -n <namespace> -c <subnet_cidr> -p <policy_file>
+      VPC_NAME=""; NS_NAME=""; CIDR_BLOCK=""; POLICY_FILE=""
+      while getopts "v:n:c:p:h" opt; do
+        case $opt in
+          v) VPC_NAME="$OPTARG";;
+          n) NS_NAME="$OPTARG";;
+          c) CIDR_BLOCK="$OPTARG";;
+          p) POLICY_FILE="$OPTARG";;
+          h) usage;;
+        esac
+      done
+      shift $((OPTIND-1))
+      add_sg "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${POLICY_FILE:-$4}"
+      ;;
+    remove_sg)
+      # Flags: -v <vpc_name> -n <namespace> -c <subnet_cidr> -p <policy_file>
+      VPC_NAME=""; NS_NAME=""; CIDR_BLOCK=""; POLICY_FILE=""
+      while getopts "v:n:c:p:h" opt; do
+        case $opt in
+          v) VPC_NAME="$OPTARG";;
+          n) NS_NAME="$OPTARG";;
+          c) CIDR_BLOCK="$OPTARG";;
+          p) POLICY_FILE="$OPTARG";;
+          h) usage;;
+        esac
+      done
+      shift $((OPTIND-1))
+      remove_sg "${VPC_NAME:-$1}" "${NS_NAME:-$2}" "${CIDR_BLOCK:-$3}" "${POLICY_FILE:-$4}"
+      ;;
     help) usage ;;
     *) usage ;;
 esac
