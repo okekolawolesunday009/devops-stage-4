@@ -132,10 +132,11 @@ create_ns() {
 
     # Set default route
     local gateway_ip=$(echo "$gateway_cidr" | cut -d'/' -f1)
+    echo "[SUCCESS] Default route set for $namespace ($ipcidr → $gateway_ip)"
     run ip netns exec "$namespace" ip route add default via "$gateway_ip" dev "$dev"
 
 
-    
+    echo "[SUCCESS] Namespace '$namespace' created and attached to bridge '$br' with IP '$ipcidr'"
   
 
     # Enable NAT if nat_enabled is true
@@ -181,87 +182,86 @@ delete_ns() {
 peer_vpcs() {
     local vpc1=${VPC_NAME:-$1}
     local vpc2=$2
-    local cidr1=$3
-    local cidr2=$4
-    local br1="vpc-$vpc1-br"
-    local br2="vpc-$vpc2-br"
-    local veth1="veth-$vpc1-$vpc2"
-    local veth2="veth-$vpc2-$vpc1"
+    local cidr1=$3       # CIDR of VPC1
+    local cidr2=$4       # CIDR of VPC2
+    local gw1=$5         # Gateway inside VPC1
+    local gw2=$6         # Gateway inside VPC2
 
-    if [ "$vpc1" == "$vpc2" ]; then 
-        echo "Error: Cannot peer a VPC with itself" >&2
+    # sanity check
+    if [ "$vpc1" == "$vpc2" ]; then
+        echo "❌ Error: Cannot peer a VPC with itself" >&2
         return 1
     fi
 
-    # Check if bridges exist
-    if ! ip link show "$br1" >/dev/null 2>&1; then
-        echo "Error: Bridge '$br1' does not exist" >&2
-        return 1
-    fi
-    if ! ip link show "$br2" >/dev/null 2>&1; then
-        echo "Error: Bridge '$br2' does not exist" >&2
-        return 1
-    fi
+     # Define veth pair names
+    local veth1="veth-${vpc1}-${vpc2}"
+    local veth2="veth-${vpc2}-${vpc1}"
 
     # Create veth pair
     run ip link add "$veth1" type veth peer name "$veth2"
-    run ip link set "$veth1" master "$br1"
-    run ip link set "$veth2" master "$br2"
-    run ip link set "$veth1" up
-    run ip link set "$veth2" up
 
-    # Restrict traffic to allowed CIDRs only
-    iptables -A FORWARD -i "$veth1" -s "$cidr1" -d "$cidr2" -j ACCEPT
-    iptables -A FORWARD -i "$veth2" -s "$cidr2" -d "$cidr1" -j ACCEPT
-    iptables -A FORWARD -i "$veth1" -j DROP
-    iptables -A FORWARD -i "$veth2" -j DROP
+    # Attach ends to namespaces
+    run ip link set "$veth1" netns "$vpc1"
+    run ip link set "$veth2" netns "$vpc2"
 
-    echo "VPC '$vpc1' and '$vpc2' are now peered via $veth1 <-> $veth2 (allowed: $cidr1 <-> $cidr2)"
+    # Bring up interfaces inside each namespace
+    run ip netns exec "$vpc1" ip link set "$veth1" up
+    run ip netns exec "$vpc2" ip link set "$veth2" up
+
+    # Assign IPs to veth interfaces (just use .254 as peering gateway)
+    local ip1="${gw1%.*}.254"
+    local ip2="${gw2%.*}.254"
+    run ip netns exec "$vpc1" ip addr add "$ip1/32" dev "$veth1"
+    run ip netns exec "$vpc2" ip addr add "$ip2/32" dev "$veth2"
+
+    # Add routes so each namespace can reach the other’s subnet
+    run ip netns exec "$vpc1" ip route add "$cidr2" via "$ip2"
+    run ip netns exec "$vpc2" ip route add "$cidr1" via "$ip1"
+
+    # Add iptables FORWARD rules (host level)
+    run iptables -A FORWARD -s "$cidr1" -d "$cidr2" -j ACCEPT
+    run iptables -A FORWARD -s "$cidr2" -d "$cidr1" -j ACCEPT
+
+    # Drop everything else between them (to simulate security groups)
+    run iptables -A FORWARD -i "$veth1" -j DROP
+    run iptables -A FORWARD -i "$veth2" -j DROP
+
+
+    echo "✅ VPCs '$vpc1' and '$vpc2' are now peered (allowed: $cidr1 <-> $cidr2)"
 }
 
-unpeer_ns() {
-    local vpc_ns1=${NS1:-$1}
-    local vpc_ns2=${NS2:-$2}
-    local br=${BR1:-$3}
-    local cidr1=$4
-    local cidr2=$5
 
-    run ip link delete "veth-$vpc_ns1" 2>/dev/null || true
-    run ip link delete "veth-$vpc_ns2" 2>/dev/null || true
-    run ip link down "$br" 2>/dev/null || true
-    run ip link delete "$br" 2>/dev/null || true
+unpeer_vpcs() {
+    local vpc1=${VPC_NAME:-$1}
+    local vpc2=$2
+    local cidr1=$3
+    local cidr2=$4
+    local gw1=$5
+    local gw2=$6
+
+    echo "🔌 Unpeering $vpc1 <-> $vpc2"
+
+    local veth1="veth-${vpc1}-${vpc2}"
+
+    echo "🔌 Unpeering $vpc1 <-> $vpc2"
+
+    # Remove routes
+    run ip netns exec "$vpc1" ip route del "$cidr2" 2>/dev/null || true
+    run ip netns exec "$vpc2" ip route del "$cidr1" 2>/dev/null || true
+
+    # Remove veth pair (deleting one side removes both)
+    run ip link delete "$veth1" 2>/dev/null || true
+
+    # Remove iptables rules
+    run iptables -D FORWARD -s "$cidr1" -d "$cidr2" -j ACCEPT 2>/dev/null || true
+    run iptables -D FORWARD -s "$cidr2" -d "$cidr1" -j ACCEPT 2>/dev/null || true
+
+    # Optional: flush restrictive drop rules
+    run iptables -D FORWARD -i "veth-${vpc1}-${vpc2}" -j DROP 2>/dev/null || true
+    run iptables -D FORWARD -i "veth-${vpc2}-${vpc1}" -j DROP 2>/dev/null || true
+
+    echo "✅ Unpeering complete between $vpc1 and $vpc2"
 }
-
-# List all VPCs and namespaces
-list_state() {
-    echo "Listing all VPCs and namespaces"
-    ip netns list
-    ip link show | awk -F ': ' '{print $2}' | grep -E 'vpc-.*-br'
-}
-# Cleanup all VPCs and namespaces
-cleanup_all() {
-    echo "Cleaning up all VPCs and namespaces"
-    read -p "Proceed with caution (y/n)? " ans
-    [ "${ans,,}" == "y" ] || return 1
-
-    # Delete namespaces
-    for ns in $(ip netns list | awk -F ': ' '{print $1}' || true); do
-        run ip netns delete "$ns" 2>/dev/null || true
-    done
-
-    # Delete bridges
-    for br in $(ip link show | awk -F ': ' '{print $2}' | grep -E '.*-br' || true); do
-        run ip link set "$br" down 2>/dev/null || true
-        run ip link delete "$br" 2>/dev/null || true
-    done
-
-    # Flush iptables
-    run iptables -F
-    run iptables -t nat -F
-
-    echo "[CLEANUP COMPLETE] All VPCs, namespaces, and associated resources have been removed."
-}
-
 # add_sg and remove_sg retain positional args for simplicity
 add_sg(){
     local vpc=$1
@@ -354,34 +354,38 @@ case "$cmd" in
       ;;
     delete_ns) [ $# -ne 1 ] && usage; delete_ns "$1" ;;
     peer_vpcs)
-      # Flags: -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2>
-      VPC_NAME=""; VPC2=""; CIDR_BLOCK=""; CIDR2=""
-      while getopts "v:w:c:d:h" opt; do
+      # Flags: -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2> -g <gw1> -h <gw2>
+      VPC_NAME=""; VPC2=""; CIDR_BLOCK_1=""; CIDR_BLOCK_2=""; GW_1=""; GW_2=""
+      while getopts "v:w:c:d:g:h:i" opt; do
         case $opt in
           v) VPC_NAME="$OPTARG";;
           w) VPC2="$OPTARG";;
-          c) CIDR_BLOCK="$OPTARG";;
-          d) CIDR2="$OPTARG";;
-          h) usage;;
+          c) CIDR_BLOCK_1="$OPTARG";;
+          d) CIDR_BLOCK_2="$OPTARG";;
+          g) GW_1="$OPTARG";;
+          h) GW_2="$OPTARG";;
+          i) usage;;
         esac
       done
       shift $((OPTIND-1))
-      peer_vpcs "${VPC_NAME:-$1}" "${VPC2:-$2}" "${CIDR_BLOCK:-$3}" "${CIDR2:-$4}"
+      peer_vpcs "${VPC_NAME:-$1}" "${VPC2:-$2}" "${CIDR_BLOCK_1:-$3}" "${CIDR_BLOCK_2:-$4}" "${GW_1:-$5}" "${GW_2:-$6}"
       ;;
     unpeer_vpcs)
-      # Flags: -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2>
-      VPC_NAME=""; VPC2=""; CIDR_BLOCK=""; CIDR2=""
-      while getopts "v:w:c:d:h" opt; do
+      # Flags: -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2> -g <gw1> -h <gw2>
+      VPC_NAME=""; VPC2=""; CIDR_BLOCK_1=""; CIDR_BLOCK_2=""; GW_1=""; GW_2=""
+      while getopts "v:w:c:d:g:h:i" opt; do
         case $opt in
           v) VPC_NAME="$OPTARG";;
           w) VPC2="$OPTARG";;
-          c) CIDR_BLOCK="$OPTARG";;
-          d) CIDR2="$OPTARG";;
-          h) usage;;
+          c) CIDR_BLOCK_1="$OPTARG";;
+          d) CIDR_BLOCK_2="$OPTARG";;
+          g) GW_1="$OPTARG";;
+          h) GW_2="$OPTARG";;
+          i) usage;;
         esac
       done
       shift $((OPTIND-1))
-      unpeer_vpcs "${VPC_NAME:-$1}" "${VPC2:-$2}" "${CIDR_BLOCK:-$3}" "${CIDR2:-$4}"
+      unpeer_vpcs "${VPC_NAME:-$1}" "${VPC2:-$2}" "${CIDR_BLOCK_1:-$3}" "${CIDR_BLOCK_2:-$4}" "${GW_1:-$5}" "${GW_2:-$6}"
       ;;
     cleanup_all) cleanup_all ;;
     add_sg)

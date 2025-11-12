@@ -75,8 +75,10 @@ Run the script with the desired command:
 - `peer_ns <ns1> <ns2> <bridge> <cidr1> <cidr2>`  
   Peer two network namespaces (subnets) via a bridge, restricting traffic to the given CIDRs. Supports env vars.
 
-- `peer_vpcs <vpc1> <vpc2> <cidr1> <cidr2>`  
-  Peer two VPCs (bridges) with a veth pair, restricting traffic to the given CIDRs. Supports env vars.
+- `peer_vpcs -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2> -g <gw1> -h <gw2>`  
+  Peer two VPCs (bridges) with a veth pair, restricting traffic to the given CIDRs. Gateways are required. Supports env vars.
+- `unpeer_vpcs -v <vpc1> -w <vpc2> -c <cidr1> -d <cidr2> -g <gw1> -h <gw2>`  
+  Unpeer two VPCs and remove all routes and rules. Gateways are required. Supports env vars.
 
 - `cleanup_all`  
   Remove all VPCs and namespaces, flush iptables.
@@ -121,11 +123,10 @@ See `test/test_firewall_json.sh` for a full test scenario.
 ./vpcctl.sh create_ns -v vpc1 -n ns2 -c 192.168.1.20/24 -g 192.168.1.1/24 -b vpc-vpc1-br -t private -a false -i etho
 
 # Peer two VPCs, allowing only specific CIDRs to communicate
-./vpcctl.sh peer_vpcs -v vpc1 -v vpc2 -c 192.168.1.0/24 -c 192.168.2.0/24
-
+./vpcctl.sh peer_vpcs -v vpc1 -w vpc2 -c 192.168.1.0/24 -d 192.168.2.0/24 -g 192.168.1.1/24 -h 192.168.2.1/24
 
 # Unpeer two VPCs
-./vpcctl.sh unpeer_vpcs -v vpc1 -v vpc2
+./vpcctl.sh unpeer_vpcs -v vpc1 -w vpc2 -c 192.168.1.0/24 -d 192.168.2.0/24 -g 192.168.1.1/24 -h 192.168.2.1/24
 
 # Cleanup all
 ./vpcctl.sh cleanup_all

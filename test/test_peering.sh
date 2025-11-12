@@ -6,7 +6,8 @@ set -euo pipefail
 log() { echo "$1"; }
 
 log "[Test] Peering VPCs with CIDR restrictions (192.168.1.0/24 <-> 192.168.2.0/24)..."
-bash vpcctl.sh peer_vpcs -v vpc1 -w vpc2 -c 192.168.1.0/24 -d 192.168.2.0/24
+bash vpcctl.sh peer_vpcs -v vpc1 -w vpc2 -c 192.168.2.0/24 -d 192.168.1.0/24 -g 192.168.1.1/24 -h 192.168.2.1/24
+
 sleep 1
 log "[Test] After VPC peering (only allowed subnets should communicate)..."
 ip netns exec ns1 ping -c 2 192.168.2.10 && log "ns1 can reach ns3 after VPC peering (PASS)" || log "ns1 cannot reach ns3 after VPC peering (FAIL)"
@@ -14,3 +15,8 @@ ip netns exec ns3 ping -c 2 192.168.1.10 && log "ns3 can reach ns1 after VPC pee
 
 log "[Test] Negative: ns2 (192.168.1.20) should NOT reach ns3 after peering..."
 ip netns exec ns2 ping -c 2 192.168.2.10 && log "ns2 can reach ns3 (FAIL: should be blocked)" || log "ns2 cannot reach ns3 (PASS: blocked as expected)"
+bash vpcctl.sh unpeer_vpcs -v vpc1 -w vpc2 -c 192.168.2.0/24 -d 192.168.1.0/24 -g 192.168.1.1/24 -h 192.168.2.1/24
+sleep 1 
+log "[Test] After VPC unpeering (communication should be blocked again)..."
+ip netns exec ns2 ping -c 2 192.168.2.10 && log "ns2 can reach ns3 (FAIL: should be blocked)" || log "ns2 cannot reach ns3 (PASS: blocked as expected)"
+        
