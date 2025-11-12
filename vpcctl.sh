@@ -38,8 +38,8 @@ EOF
 
 # Create a VPC (Linux bridge)
 create_vpc() {
-    local name=$1
-    local cidr_block=$2
+    local name=${VPC1:-$1}
+    local cidr_block=${CIDR1:-$2}
     local br="vpc-$name-br"
 
     # Check if bridge already exists
@@ -87,15 +87,15 @@ delete_vpc() {
 
 # Create namespace and attach to VPC
 create_ns() {
-    local vpc=$1
-    local namespace=$2
-    local ipcidr=$3
-    local gateway_cidr=$4
+    local vpc=${VPC1:-$1}
+    local namespace=${NS1:-$2}
+    local ipcidr=${CIDR1:-$3}
+    local gateway_cidr=${GW1:-$4}
     local dev="veth-$namespace"
     local peer="veth-$namespace-br"
-    local br=$5
-    local subnet_type=$6  # 'public' or 'private'
-    local nat_enabled=$7
+    local br=${BR1:-$5}
+    local subnet_type=${SUBNET_TYPE:-$6}  # 'public' or 'private'
+    local nat_enabled=${NAT_ENABLED:-$7}
 
     # Check if namespace already exists
     if ip netns list | grep -qw "$namespace"; then
@@ -171,10 +171,10 @@ delete_ns() {
 
 # Peer two VPCs with CIDR restrictions
 peer_vpcs() {
-    local vpc1=$1
-    local vpc2=$2
-    local cidr1=$3
-    local cidr2=$4
+    local vpc1=${VPC1:-$1}
+    local vpc2=${VPC2:-$2}
+    local cidr1=${CIDR1:-$3}
+    local cidr2=${CIDR2:-$4}
     local br1="vpc-$vpc1-br"
     local br2="vpc-$vpc2-br"
     local veth1="veth-$vpc1-$vpc2"
@@ -212,9 +212,11 @@ peer_vpcs() {
 }
 
 unpeer_ns() {
-    local vpc_ns1=$1
-    local vpc_ns2=$2
-    local br=$3
+    local vpc_ns1=${NS1:-$1}
+    local vpc_ns2=${NS2:-$2}
+    local br=${BR1:-$3}
+    local cidr1=${CIDR1:-$4}
+    local cidr2=${CIDR2:-$5}
 
     run ip link delete "veth-$vpc_ns1" 2>/dev/null || true
     run ip link delete "veth-$vpc_ns2" 2>/dev/null || true

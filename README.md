@@ -14,31 +14,40 @@ This project includes a minimal VPC manager for Linux, implemented in `vpcctl.sh
 
 ## Environment Variables
 
-The VPC setup uses environment variables for configuration. Copy `.env-example` to `.env` and adjust values as needed:
+Most commands support environment variables as input. If set, env vars take precedence over positional arguments. Useful for scripting and CI.
 
-| Variable            | Description                              | Example           |
-|---------------------|------------------------------------------|-------------------|
-| VPC_NAME            | Unique name for the virtual VPC           | vpc1              |
-| CIDR_BLOCK          | Base IP range (VPC CIDR block)            | 10.0.0.0/16       |
-| PUBLIC_SUBNET       | Subnet that allows NAT access             | 10.0.0.0/24       |
-| PRIVATE_SUBNET      | Subnet without internet access            | 10.0.1.0/24       |
-| INTERNET_INTERFACE  | Host’s outbound network interface         | eth0              |
+**Supported variables:**
+- `VPC1`, `VPC2` — VPC names
+- `NS1`, `NS2` — Namespace names
+- `CIDR1`, `CIDR2` — CIDR blocks for VPCs or subnets
+- `GW1`, `GW2` — Gateway addresses
+- `BR1`, `BR2` — Bridge names
+- `SUBNET_TYPE`, `NAT_ENABLED` — Subnet type and NAT flag
 
-Example `.env`:
+**Example `.env`:**
 ```sh
-VPC_NAME="vpc1"
-CIDR_BLOCK="10.0.0.0/16"
-PUBLIC_SUBNET="10.0.0.0/24"
-PRIVATE_SUBNET="10.0.1.0/24"
-INTERNET_INTERFACE="eth0"
+VPC1="vpc1"
+VPC2="vpc2"
+CIDR1="192.168.1.0/24"
+CIDR2="192.168.2.0/24"
+NS1="ns1"
+NS2="ns2"
+GW1="192.168.1.1/24"
+GW2="192.168.2.1/24"
+BR1="vpc-vpc1-br"
+BR2="vpc-vpc2-br"
+SUBNET_TYPE="public"
+NAT_ENABLED="true"
 ```
 
-To use these variables in your shell scripts, source the `.env` file at the top of your script:
-
+**Usage:**
 ```sh
 set -a
 [ -f .env ] && . .env
 set +a
+./vpcctl.sh create_vpc   # uses $VPC1 and $CIDR1 if set
+./vpcctl.sh create_ns    # uses env vars for all params if set
+./vpcctl.sh peer_vpcs    # uses $VPC1 $VPC2 $CIDR1 $CIDR2 if set
 ```
 
 ## Usage
@@ -51,35 +60,53 @@ Run the script with the desired command:
 
 ### Commands
 
-- `create_vpc <vpc_name> <gateway_cidr>`  
-  Create a new VPC (bridge) with the specified name and gateway CIDR (e.g., 10.0.0.1/24).
+- `create_vpc <vpc_name> <cidr_block>`  
+  Create a new VPC (bridge) with the specified name and CIDR block. Supports env vars.
 
 - `delete_vpc <vpc_name>`  
   Delete the specified VPC.
 
-- `create_ns <vpc_name> <namespace> <ipcidr> <gateway_cidr> <bridge> <public|private>`  
-  Create a namespace (subnet), attach it to the VPC bridge, assign an IP, set default route, and specify if public (NAT enabled) or private (internal-only).
+- `create_ns <vpc_name> <namespace> <ipcidr> <gateway_cidr> <bridge> <public|private> <nat_enabled>`  
+  Create a namespace (subnet), attach it to the VPC bridge, assign an IP, set default route, and specify if public (NAT enabled) or private (internal-only). Supports env vars.
 
 - `delete_ns <namespace>`  
   Delete the specified namespace.
 
-- `peer_ns <namespace1> <namespace2> <bridge>`  
-  Peer two network namespaces (subnets) by connecting them to a bridge and enabling routing between them. Use this for fine-grained, namespace-level peering.
+- `peer_ns <ns1> <ns2> <bridge> <cidr1> <cidr2>`  
+  Peer two network namespaces (subnets) via a bridge, restricting traffic to the given CIDRs. Supports env vars.
 
-- `peer_vpcs <vpc_name1> <vpc_name2>`  
-  Peer two VPCs (connect bridges) by creating a veth pair between their bridges. Use this for VPC-level (bridge-level) peering.
-
-- `unpeer_vpcs <vpc_name1> <vpc_name2>`  
-  Unpeer two VPCs.
-
-- `list`  
-  List all VPCs and namespaces (not implemented).
+- `peer_vpcs <vpc1> <vpc2> <cidr1> <cidr2>`  
+  Peer two VPCs (bridges) with a veth pair, restricting traffic to the given CIDRs. Supports env vars.
 
 - `cleanup_all`  
   Remove all VPCs and namespaces, flush iptables.
 
 - `help`  
   Show usage instructions.
+
+---
+
+### Modular Test Scripts
+
+- `test/setup_vpc.sh`: Set up VPCs and namespaces
+- `test/test_connectivity.sh`: Test intra/inter-VPC connectivity before peering
+- `test/test_peering.sh`: Test VPC peering with CIDR restrictions
+- `test/test_firewall_json.sh`: Test applying/removing firewall JSON policies
+- `test/cleanup_vpc.sh`: Cleanup resources
+
+---
+
+### Firewall JSON Policy Example
+
+```sh
+# Example: Apply security group rules to ns1
+bash vpcctl.sh add_sg vpc1 ns1 192.168.1.0/24 security_groups.json
+
+# Remove rules
+bash vpcctl.sh remove_sg vpc1 ns1 192.168.1.0/24 security_groups.json
+```
+
+See `test/test_firewall_json.sh` for a full test scenario.
 
 ## Example
 
