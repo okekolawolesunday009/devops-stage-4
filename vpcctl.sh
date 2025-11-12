@@ -180,9 +180,9 @@ delete_ns() {
 # Peer two VPCs with CIDR restrictions
 peer_vpcs() {
     local vpc1=${VPC_NAME:-$1}
-    local vpc2=${$2}
-    local cidr1=${$3}
-    local cidr2=${$4}
+    local vpc2=$2
+    local cidr1=$3
+    local cidr2=$4
     local br1="vpc-$vpc1-br"
     local br2="vpc-$vpc2-br"
     local veth1="veth-$vpc1-$vpc2"
@@ -223,8 +223,8 @@ unpeer_ns() {
     local vpc_ns1=${NS1:-$1}
     local vpc_ns2=${NS2:-$2}
     local br=${BR1:-$3}
-    local cidr1=${CIDR1:-$4}
-    local cidr2=${CIDR2:-$5}
+    local cidr1=$4
+    local cidr2=$5
 
     run ip link delete "veth-$vpc_ns1" 2>/dev/null || true
     run ip link delete "veth-$vpc_ns2" 2>/dev/null || true
