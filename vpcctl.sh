@@ -1,21 +1,96 @@
 #!/bin/bash
 set -euxo pipefail  
 
+# Logging configuration
+LOG_DIR="${LOG_DIR:-/var/log/vpcctl}"
+LOG_FILE="$LOG_DIR/vpcctl_$(date +'%Y%m%d').log"
+LOG_LEVEL=${LOG_LEVEL:-INFO}  # Can be: DEBUG, INFO, WARNING, ERROR
+LOG_MAX_SIZE=${LOG_MAX_SIZE:-10}  # Max log file size in MB
+LOG_MAX_FILES=${LOG_MAX_FILES:-7}  # Number of log files to keep
+
+# Ensure log directory exists
+mkdir -p "$LOG_DIR"
+
+# Log rotation function
+rotate_logs() {
+    # Rotate if log file exists and is larger than max size
+    if [ -f "$LOG_FILE" ]; then
+        local size_mb=$(du -m "$LOG_FILE" | cut -f1)
+        if [ "$size_mb" -ge "$LOG_MAX_SIZE" ]; then
+            # Rotate logs
+            for i in $(seq $((LOG_MAX_FILES-1)) -1 1); do
+                if [ -f "${LOG_FILE}.${i}.gz" ]; then
+                    mv -f "${LOG_FILE}.${i}.gz" "${LOG_FILE}.$((i+1)).gz" 2>/dev/null || true
+                fi
+            done
+            # Compress current log
+            gzip -c "$LOG_FILE" > "${LOG_FILE}.1.gz" 2>/dev/null || true
+            > "$LOG_FILE"  # Truncate log file
+        fi
+    fi
+}
+
+# Logging function
+log() {
+    local level=$1
+    local message="${*:2}"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local script_name=$(basename "$0")
+    local pid=$$
+    
+    # Define log levels with colors
+    declare -A levels=([DEBUG]=0 [INFO]=1 [WARNING]=2 [ERROR]=3)
+    declare -A colors=([DEBUG]='\033[0;36m' [INFO]='\033[0;32m' 
+                      [WARNING]='\033[1;33m' [ERROR]='\033[1;31m')
+    local reset='\033[0m'
+    
+    local log_level_num=${levels[$LOG_LEVEL]:-1}
+    local msg_level_num=${levels[$level]:-1}
+    
+    # Only log if message level is at or above the current log level
+    if [ $msg_level_num -ge $log_level_num ]; then
+        # Format: [timestamp] [level] [script:line] [function] message
+        local log_entry="[$timestamp] [$level] [${script_name}:${BASH_LINENO[1]}] [${FUNCNAME[2]:-main}] $message"
+        
+        # Write to log file
+        mkdir -p "$LOG_DIR"
+        echo "$log_entry" >> "$LOG_FILE"
+        
+        # Color output to console
+        if [ -t 1 ]; then
+            echo -e "${colors[$level]}$log_entry${reset}"
+        else
+            echo "$log_entry"
+        fi
+    fi
+    
+    # Rotate logs if needed
+    [ $level = "INFO" ] && rotate_logs
+}
+
+# Helper to log command execution
+run() {
+    log DEBUG "Executing: $*"
+    if "$@"; then
+        log DEBUG "Command succeeded: $*"
+        return 0
+    else
+        local status=$?
+        log ERROR "Command failed with status $status: $*"
+        return $status
+    fi
+}
+
 if [ "$EUID" -ne 0 ]; then
-  echo "This script must be run as root." >&2
-  exit 1
+    log ERROR "This script must be run as root."
+    exit 1
 fi
 
+log INFO "**********************************************************************"
+log INFO "vpcctl - tiny VPC manager using Linux bridges, netns, veth, iptables"
+log INFO "**********************************************************************"
 
-echo "**********************************************************************"
-echo "vpcctl - tiny VPC manager using Linux bridges, netns, veth, iptables"
-echo "**********************************************************************"
-
-# Helper function to show commands before running
-run() {
-    echo "+ $*"
-    "$@"
-}
+# run() is now defined at the top with logging
 
 # Usage instructions
 usage() {
@@ -51,7 +126,7 @@ create_vpc() {
 
     # Check if bridge already exists
     if ip link show "$br" >/dev/null 2>&1; then
-        echo "Error: Bridge '$br' already exists" >&2
+        log ERROR "Bridge '$br' already exists"
         return 1
     fi
 
@@ -72,7 +147,7 @@ create_vpc() {
     # The user must specify which subnets are public when creating namespaces.
     # Example usage: create_ns <vpc> <ns> <ip_cidr> <gateway_cidr> <bridge> <public|private>
 
-    echo "[SUCCESS] VPC '$name' created with CIDR '$cidr_block' (bridge: '$br')"
+    log INFO "VPC '$name' created with CIDR '$cidr_block' (bridge: '$br')"
 }
 
 # Delete a VPC
@@ -82,14 +157,14 @@ delete_vpc() {
 
     # Check if bridge exists
     if ! ip link show "$br" >/dev/null 2>&1; then
-        echo "Error: Bridge '$br' does not exist" >&2
+        log ERROR "Bridge '$br' does not exist"
         return 1
     fi
 
     run ip link set "$br" down 2>/dev/null || true
     run ip link delete "$br" 2>/dev/null || true
 
-    echo "[SUCCESS] VPC '$name' deleted (bridge: '$br')"
+    log INFO "VPC '$name' deleted (bridge: '$br')"
 }
 
 # Create namespace and attach to VPC
@@ -107,13 +182,13 @@ create_ns() {
 
     # Check if namespace already exists
     if ip netns list | grep -qw "$namespace"; then
-        echo "Error: Namespace '$namespace' already exists" >&2
+        log ERROR "Namespace '$namespace' already exists"
         return 1
     fi
 
     # Create namespace
     run ip netns add "$namespace"
-    echo "[SUCCESS] Namespace '$namespace' created and attached to bridge '$br' with IP '$ipcidr'"
+    log INFO "Namespace '$namespace' created and attached to bridge '$br' with IP '$ipcidr'"
 
     # Create veth pair
     run ip link add "$dev" type veth peer name "$peer"
@@ -132,11 +207,11 @@ create_ns() {
 
     # Set default route
     local gateway_ip=$(echo "$gateway_cidr" | cut -d'/' -f1)
-    echo "[SUCCESS] Default route set for $namespace ($ipcidr → $gateway_ip)"
+    log INFO "Default route set for $namespace ($ipcidr → $gateway_ip)"
     run ip netns exec "$namespace" ip route add default via "$gateway_ip" dev "$dev"
 
 
-    echo "[SUCCESS] Namespace '$namespace' created and attached to bridge '$br' with IP '$ipcidr'"
+    log INFO "Namespace '$namespace' created and attached to bridge '$br' with IP '$ipcidr'"
   
 
     # Enable NAT if nat_enabled is true
@@ -145,9 +220,9 @@ create_ns() {
         if [ -n "$public_ip" ]; then
             iptables -t nat -C POSTROUTING -s "$ipcidr" -o "$br" -j SNAT --to-source "$public_ip" 2>/dev/null || \
             iptables -t nat -A POSTROUTING -s "$ipcidr" -o "$br" -j SNAT --to-source "$public_ip"
-            echo "Static SNAT enabled for $namespace ($ipcidr → $public_ip)"
+            log INFO "Static SNAT enabled for $namespace ($ipcidr → $public_ip)"
         else
-            echo "Error: Could not determine public IP for $internet_interface" >&2
+            log ERROR "Could not determine public IP for $internet_interface"
         fi
     fi
 
@@ -171,7 +246,7 @@ delete_ns() {
     for p in $(ip -o link show | awk -F ': ' '{print $2}' | grep -E "veth-$namespace-br|veth-$namespace$" || true); do
         run ip link delete "$p" 2>/dev/null || true
     done
-    echo "[SUCCESS] Namespace '$namespace' deleted and all associated interfaces removed."
+    log INFO "Namespace '$namespace' deleted and all associated interfaces removed."
 }
 
 
@@ -189,11 +264,11 @@ peer_vpcs() {
 
     # sanity check
     if [ "$vpc1" == "$vpc2" ]; then
-        echo "❌ Error: Cannot peer a VPC with itself" >&2
+        log ERROR "Cannot peer a VPC with itself"
         return 1
     fi
 
-    echo "🔗 Peering $vpc1 ($cidr1) <-> $vpc2 ($cidr2)"    
+    log INFO "Peering $vpc1 ($cidr1) <-> $vpc2 ($cidr2)"    
 
     # Add routes so each namespace can reach the other’s subnet
     run ip netns exec "$vpc1" ip route add "$cidr2" via "$gw1"
