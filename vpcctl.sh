@@ -2,7 +2,8 @@
 set -euxo pipefail  
 
 # Logging configuration
-LOG_DIR="${LOG_DIR:-/var/log/vpcctl}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
 LOG_FILE="$LOG_DIR/vpcctl_$(date +'%Y%m%d').log"
 LOG_LEVEL=${LOG_LEVEL:-INFO}  # Can be: DEBUG, INFO, WARNING, ERROR
 LOG_MAX_SIZE=${LOG_MAX_SIZE:-10}  # Max log file size in MB
@@ -52,8 +53,11 @@ log() {
         # Format: [timestamp] [level] [script:line] [function] message
         local log_entry="[$timestamp] [$level] [${script_name}:${BASH_LINENO[1]}] [${FUNCNAME[2]:-main}] $message"
         
-        # Write to log file
-        mkdir -p "$LOG_DIR"
+        # Ensure log directory exists and is writable
+        if ! mkdir -p "$LOG_DIR" 2>/dev/null || [ ! -w "$LOG_DIR" ]; then
+            echo "ERROR: Cannot write to log directory: $LOG_DIR" >&2
+            return 1
+        fi
         echo "$log_entry" >> "$LOG_FILE"
         
         # Color output to console
